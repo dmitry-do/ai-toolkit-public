@@ -1,0 +1,13 @@
+{
+  "name": "humanizer",
+  "version": "2.5.1",
+  "description": "Remove signs of AI-generated writing from text. Detects em-dash overuse, rule-of-three, AI vocabulary, passive voice, negative parallelisms, inflated symbolism, and more.",
+  "author": {
+    "name": "Siqi Chen (upstream)",
+    "url": "https://github.com/blader/humanizer"
+  },
+  "homepage": "https://github.com/blader/humanizer",
+  "repository": "https://github.com/dmitry-do/ai-toolkit",
+  "license": "MIT",
+  "keywords": ["writing", "editing", "ai-detection"]
+}
