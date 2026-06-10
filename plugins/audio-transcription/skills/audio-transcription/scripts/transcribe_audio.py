@@ -69,6 +69,7 @@ def print_check() -> int:
     if command_available("ffmpeg") and ((apple_silicon and has_mlx) or (not apple_silicon and (has_mlx or has_whisper))):
         return 0
 
+    sys.stdout.flush()
     print("", file=sys.stderr)
     print("Install hints:", file=sys.stderr)
     if not command_available("ffmpeg"):
