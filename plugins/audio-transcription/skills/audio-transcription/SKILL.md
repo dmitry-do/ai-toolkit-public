@@ -73,6 +73,13 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audi
 
 For batch transcription, loop over discovered audio files and skip existing `.md` outputs unless the user explicitly wants regeneration.
 
+### Incremental output
+
+By default the script transcribes long audio in chunks and rewrites the Markdown after each chunk (atomic temp-file + rename), so an interrupted run still leaves a partial transcript on disk. Chunking targets ~10 checkpoints but never makes a chunk shorter than 120s, so short clips stay a single chunk.
+
+- `--checkpoint-chunks N` — target number of checkpoints (default 10). `--checkpoint-chunks 1` disables chunking (single-shot, original behavior).
+- `--checkpoint-min-seconds S` — minimum chunk length (default 120). Chunk boundaries lose cross-chunk context, so smaller chunks transcribe more frequently but can roughen sentences split across a boundary.
+
 ## Dependency Guidance
 
 - Use `mlx-whisper` on macOS Apple Silicon. The bundled script enforces this and exits if `--backend whisper` is requested on Apple Silicon.

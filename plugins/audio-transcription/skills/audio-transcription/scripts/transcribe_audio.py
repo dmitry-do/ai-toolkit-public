@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import importlib
 import importlib.util
+import os
 import platform
 import shutil
 import sys
@@ -23,6 +24,9 @@ MLX_MODEL_DOWNLOAD_COMMAND = "huggingface-cli download --local-dir whisper-large
 DEFAULT_WHISPER_MODEL = "large-v3"
 DEFAULT_LOCK_DIR = Path("/tmp/audio-transcription-locks")
 SUPPORTED_AUDIO_SUFFIXES = (".wav", ".mp3", ".m4a")
+SAMPLE_RATE = 16000
+DEFAULT_CHECKPOINT_CHUNKS = 10
+DEFAULT_CHECKPOINT_MIN_SECONDS = 120.0
 
 
 def fail(message: str, code: int = 1) -> None:
@@ -169,6 +173,118 @@ def format_ts(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def plan_chunks(duration, target_chunks=DEFAULT_CHECKPOINT_CHUNKS, floor_seconds=DEFAULT_CHECKPOINT_MIN_SECONDS):
+    """Split a duration (seconds) into contiguous (start, end) chunks.
+
+    Aims for ``target_chunks`` chunks but never makes a chunk shorter than
+    ``floor_seconds``, so short audio collapses to a single chunk.
+    """
+    if duration <= 0:
+        return [(0.0, 0.0)]
+    n = max(1, min(target_chunks, int(duration // floor_seconds)))
+    size = duration / n
+    return [(i * size, duration if i == n - 1 else (i + 1) * size) for i in range(n)]
+
+
+def offset_segments(segments, offset):
+    """Return copies of ``segments`` with start/end shifted by ``offset`` seconds."""
+    shifted = []
+    for seg in segments:
+        moved = dict(seg)
+        moved["start"] = seg.get("start", 0.0) + offset
+        moved["end"] = seg.get("end", 0.0) + offset
+        shifted.append(moved)
+    return shifted
+
+
+def build_chunk_prompt(base_prompt, prev_text, tail_chars=200):
+    """Combine the user prompt with the tail of the previous chunk's text."""
+    tail = prev_text[-tail_chars:].strip() if prev_text else ""
+    parts = [part for part in (base_prompt, tail) if part]
+    return " ".join(parts).strip() or None
+
+
+def transcribe_chunked(audio, chunks, transcribe_fn, on_progress, base_prompt=None):
+    """Transcribe ``audio`` chunk-by-chunk, persisting after each via ``on_progress``.
+
+    ``transcribe_fn(audio_slice, initial_prompt, language)`` returns a result dict.
+    ``on_progress(accumulated_result)`` is called after every chunk so the caller
+    can write partial output to disk. Returns the accumulated result dict.
+    """
+    all_segments = []
+    text_parts = []
+    language = None
+    for start_s, end_s in chunks:
+        slice_audio = audio[int(start_s * SAMPLE_RATE):int(end_s * SAMPLE_RATE)]
+        prompt = build_chunk_prompt(base_prompt, text_parts[-1] if text_parts else "")
+        result = transcribe_fn(slice_audio, prompt, language)
+        if language is None:
+            language = result.get("language")
+        all_segments.extend(offset_segments(result.get("segments") or [], start_s))
+        chunk_text = (result.get("text") or "").strip()
+        if chunk_text:
+            text_parts.append(chunk_text)
+        on_progress({"segments": all_segments, "text": " ".join(text_parts), "language": language})
+    return {"segments": all_segments, "text": " ".join(text_parts), "language": language}
+
+
+def load_audio_array(backend, audio_path):
+    """Load audio as a 16 kHz mono numpy array using the backend's loader."""
+    module_name = "mlx_whisper.audio" if backend == "mlx" else "whisper.audio"
+    return importlib.import_module(module_name).load_audio(str(audio_path))
+
+
+def make_mlx_transcribe_fn(model_name, args):
+    """Build a transcribe callable for the mlx-whisper backend (model is cached)."""
+    mlx_whisper = importlib.import_module("mlx_whisper")
+
+    def transcribe_fn(audio, initial_prompt, language):
+        kwargs = {
+            "path_or_hf_repo": model_name,
+            "verbose": False,
+            "temperature": 0.0,
+            "condition_on_previous_text": True,
+            "task": "transcribe",
+        }
+        if initial_prompt:
+            kwargs["initial_prompt"] = initial_prompt
+        chosen = language or args.language
+        if chosen:
+            kwargs["language"] = chosen
+        return mlx_whisper.transcribe(audio, **kwargs)
+
+    return transcribe_fn
+
+
+def make_whisper_transcribe_fn(model_name, args, device):
+    """Build a transcribe callable for the openai-whisper backend (model loaded once)."""
+    whisper = importlib.import_module("whisper")
+    load_kwargs = {"device": device}
+    if args.model_dir:
+        args.model_dir.mkdir(parents=True, exist_ok=True)
+        load_kwargs["download_root"] = str(args.model_dir)
+    model = whisper.load_model(model_name, **load_kwargs)
+
+    def transcribe_fn(audio, initial_prompt, language):
+        kwargs = {
+            "task": "transcribe",
+            "verbose": False,
+            "temperature": 0,
+            "beam_size": args.beam_size,
+            "best_of": args.beam_size,
+            "condition_on_previous_text": True,
+            "fp16": device != "cpu",
+        }
+        if initial_prompt:
+            kwargs["initial_prompt"] = initial_prompt
+        chosen = language or args.language
+        if chosen:
+            kwargs["language"] = chosen
+        return model.transcribe(audio, **kwargs)
+
+    return transcribe_fn
+
+
 def acquire_transcription_slot(lock_dir: Path, slots: int):
     lock_dir.mkdir(parents=True, exist_ok=True)
     while True:
@@ -203,27 +319,15 @@ def transcription_slot(lock_dir: Path, slots: int):
 
 
 def transcribe_mlx(audio_path: Path, model_name: str, args: argparse.Namespace, prompt: str | None) -> tuple[dict, str | None]:
-    mlx_whisper = importlib.import_module("mlx_whisper")
     model_path = Path(model_name).expanduser()
     if model_name.startswith(("/", "./", "../", "~")) and not model_path.exists():
         fail(f"MLX model path not found: {model_path}", 2)
 
-    kwargs = {
-        "path_or_hf_repo": model_name,
-        "verbose": False,
-        "temperature": 0.0,
-        "condition_on_previous_text": True,
-        "task": "transcribe",
-    }
-    if prompt:
-        kwargs["initial_prompt"] = prompt
-    if args.language:
-        kwargs["language"] = args.language
-
     print(f"Transcribing {audio_path.name} with mlx-whisper...", file=sys.stderr)
     if model_name == DEFAULT_MLX_MODEL:
         print(f"Using MLX model {model_name} from {MLX_MODEL_SOURCE_URL}", file=sys.stderr)
-    return mlx_whisper.transcribe(str(audio_path), **kwargs), None
+    transcribe_fn = make_mlx_transcribe_fn(model_name, args)
+    return transcribe_fn(str(audio_path), prompt, None), None
 
 
 def transcribe_openai_whisper(
@@ -311,7 +415,9 @@ def write_markdown(
         lines.append("")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    tmp_path = output_path.with_name(output_path.name + ".tmp")
+    tmp_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    os.replace(tmp_path, output_path)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -338,6 +444,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--beam-size", type=int, default=5)
     parser.add_argument("--lock-dir", type=Path, default=DEFAULT_LOCK_DIR)
     parser.add_argument("--parallel-slots", type=int, default=1)
+    parser.add_argument(
+        "--checkpoint-chunks",
+        type=int,
+        default=DEFAULT_CHECKPOINT_CHUNKS,
+        help="Target number of incremental write checkpoints. 1 disables chunking (single-shot).",
+    )
+    parser.add_argument(
+        "--checkpoint-min-seconds",
+        type=float,
+        default=DEFAULT_CHECKPOINT_MIN_SECONDS,
+        help="Minimum chunk length in seconds; prevents tiny chunks on short audio.",
+    )
     parser.add_argument("--check", action="store_true", help="Check local dependencies and print install hints.")
     return parser
 
@@ -363,7 +481,37 @@ def main() -> None:
     prompt = read_prompt(args)
 
     with transcription_slot(args.lock_dir, args.parallel_slots):
-        if backend == "mlx":
+        chunks = []
+        if args.checkpoint_chunks > 1:
+            audio = load_audio_array(backend, args.audio)
+            chunks = plan_chunks(
+                len(audio) / SAMPLE_RATE,
+                args.checkpoint_chunks,
+                args.checkpoint_min_seconds,
+            )
+
+        if len(chunks) > 1:
+            device = None if backend == "mlx" else choose_device(args.device)
+            transcribe_fn = (
+                make_mlx_transcribe_fn(model_name, args)
+                if backend == "mlx"
+                else make_whisper_transcribe_fn(model_name, args, device)
+            )
+            print(
+                f"Transcribing {args.audio.name} in {len(chunks)} chunks with {backend}; "
+                "writing after each.",
+                file=sys.stderr,
+            )
+
+            def write_checkpoint(accumulated):
+                write_markdown(output_path, args.audio, backend, model_name, device, args, accumulated)
+                print(
+                    f"  checkpoint: {len(accumulated['segments'])} segments -> {output_path}",
+                    file=sys.stderr,
+                )
+
+            result = transcribe_chunked(audio, chunks, transcribe_fn, write_checkpoint, base_prompt=prompt)
+        elif backend == "mlx":
             result, device = transcribe_mlx(args.audio, model_name, args, prompt)
         else:
             result, device = transcribe_openai_whisper(args.audio, model_name, args, prompt)
