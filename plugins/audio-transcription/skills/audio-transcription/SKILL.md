@@ -84,7 +84,17 @@ For batch transcription, loop over discovered audio files and skip existing `.md
 By default the script transcribes long audio in chunks and rewrites the Markdown after each chunk (atomic temp-file + rename), so an interrupted run still leaves a partial transcript on disk. Chunking targets ~10 checkpoints but never makes a chunk shorter than 120s, so short clips stay a single chunk.
 
 - `--checkpoint-chunks N` — target number of checkpoints (default 10). `--checkpoint-chunks 1` disables chunking (single-shot, original behavior).
-- `--checkpoint-min-seconds S` — minimum chunk length (default 120). Chunk boundaries lose cross-chunk context, so smaller chunks transcribe more frequently but can roughen sentences split across a boundary.
+- `--checkpoint-min-seconds S` — minimum chunk length (default 120). Keep chunks well above Whisper's internal 30s window; the 120s floor is measured to be accuracy-neutral.
+- Each chunk is transcribed with only the user's `--prompt` — the previous chunk's text is deliberately **not** carried across the boundary (carrying it conditions the decoder across chunks and can make Whisper silently drop the start of a chunk; measured at ~75 words lost).
+
+### Silence skipping (on by default)
+
+The script detects speech regions by energy and skips silences longer than ~2s (`--skip-silence`, default on). On silence-heavy recordings this is both faster and **more accurate** — Whisper hallucinates phrases (e.g. "Thank you.") in long silences, and skipping them removes those. Measured on a fixture with 300s of inserted silence: 4.3% vs 5.2% WER, ~15% faster.
+
+- Timestamps keep the original timeline (a sentence after a skipped gap keeps its real start time).
+- It self-gates: it only engages when it would save ≥10s (or ≥20% of a short file), so continuous recordings are transcribed exactly as before; if no speech is detected at all, the full audio is transcribed.
+- The threshold is conservative (30 dB under the loud parts, 0.3s padding, only >2s silences) — a quiet speaker 25 dB below the rest of the room is fully retained.
+- Pass `--no-skip-silence` to opt out, e.g. for music with long genuinely-quiet passages where even faint content matters.
 
 ### Resuming after a failure (automatic)
 

@@ -23,7 +23,7 @@ so chunk length = 823s ÷ n. Models cached, so wall excludes any first-use downl
 | **large-v3** | **5** | **165s** | 86 | **3.8** | **1.5** | 2146 | **best accuracy overall** |
 | large-v3 | 6 | 137s | 86 | 3.9 | 1.6 | 2148 | ≈ live default (floor 120s ⇒ 6 chunks) |
 | large-v3 | 10 | 82s | 86 | 4.3 | 1.8 | 2145 | |
-| large-v3 | 16 | 51s | 82 | 15.0 | 12.1 | 1939 | **over-chunked**: ~222 words lost at boundaries |
+| large-v3 | 16 | 51s | 82 | 15.0 | 12.1 | 1939 | superseded — this was the prompt carry, see below |
 | turbo | 1 (single-shot) | 823s | 33 | 4.2 | 1.5 | 2152 | turbo's best |
 | turbo | 6 | 137s | 36 | 4.8 | 2.0 | 2168 | |
 | turbo | 16 | 51s | 33 | 4.6 | 2.0 | 2145 | turbo more boundary-robust than large-v3 |
@@ -38,10 +38,13 @@ so chunk length = 823s ÷ n. Models cached, so wall excludes any first-use downl
   (chunks ≥ ~137s) are all 3.8–4.2% — flat, best at n=5. n=10 (82s) slips to 4.3%; **n=16 (51s)
   collapses to 15.0%.** The collapse is *deletion at chunk boundaries* (hyp words drop 2146→1939,
   19 fewer segments), **not** a repetition loop — a distinct, milder failure mode.
+  **(Superseded 2026-06-11: the deletion was driven by the cross-chunk prompt carry, since
+  removed — the same n=16 config now scores 4.7%. See the silence-skip section below.)**
 - **Keep chunks comfortably above Whisper's 30s internal window.** Slices near ~50s start losing
   audio at the hard cuts. The plugin's `--checkpoint-min-seconds 120` floor is load-bearing: it
   guarantees ≥120s chunks regardless of `--checkpoint-chunks`, keeping every run in the safe zone.
-  Don't lower the floor below ~120s.
+  Don't lower the floor below ~120s. *(Still good guidance for checkpoint efficiency, though the
+  catastrophic boundary deletion itself is gone with the prompt carry — see below.)*
 - **Conditioning-off makes single-shot safe.** With `condition_on_previous_text=False` (the default),
   even no-chunking single-shot is clean (large-v3 4.0%, turbo 4.2%) — the old 400%/99.9%-WER
   catastrophes were the conditioning-driven loop, now gone. Chunking is no longer needed to *contain*
@@ -74,6 +77,45 @@ The aligned clip looped 3× into a **2469s (~41 min)** file (`/tmp/loop40.mp3`, 
   incremental on-disk saves, which cost ~5% time and zero accuracy. The default (target 10, floor 120s)
   is exactly right: ~10 checkpoints on a 40-min file, and it auto-collapses to single-shot on short clips.
 
+## Silence skipping (VAD) + the prompt-carry fix (2026-06-11)
+
+New fixtures, built from the aligned 823s audio so the 2161-word reference stays exact:
+**silence-heavy** = audio split at a natural pause (400s) with 300s of encoded silence inserted
+(1123s total, 27% silence); **quiet-speaker** = second half attenuated −25 dB (823s). All runs
+turbo, `--language en`, no prompt carry unless marked.
+
+| config | fixture | wall_s | WER% | CER% | notes |
+|--------|---------|-------:|-----:|-----:|-------|
+| defaults (skip-silence on) | aligned | 34 | 4.3 | 1.6 | VAD self-gates to a no-op on continuous speech |
+| defaults (skip-silence on) | silence-heavy | 34 | 4.3 | 1.8 | skips the 300s gap; **no silence hallucinations** |
+| `--no-skip-silence` | silence-heavy | 40 | 5.2 | 2.7 | hallucinates in the gap ("Thank you." ×48 words) |
+| defaults (skip-silence on) | quiet-speaker | 33 | 4.7 | 1.9 | −25 dB speech stays above threshold, fully kept |
+| with prompt carry (old code) | silence-heavy | 32 | 7.9 | 5.3 | head-of-chunk deletion, ~75 words lost |
+| large-v3 n=16 (51s chunks) | aligned | 89 | 4.7 | 2.1 | **the 15.0% "cliff" was the carry** — now fine |
+
+### The real boundary villain was the cross-chunk prompt carry
+
+The chunked path used to pass the previous chunk's last ~200 chars as `initial_prompt` to the
+next chunk. That is cross-boundary conditioning by another name — the same failure family as
+`condition_on_previous_text` — and it can make Whisper **silently delete the head of a chunk**
+(reproduced deterministically: a 133s chunk emitted a truncated 22s segment and dropped ~30s /
+75 words of real speech; the identical audio slice with no carried prompt transcribes perfectly).
+The carry is now removed: every chunk gets only the user's `--prompt`. Verified equal-or-better
+on every fixture, and it retroactively explains the n=16 boundary-deletion cliff (15.0% → 4.7%
+at identical 51s chunks).
+
+### Silence skipping (`--skip-silence`, default ON)
+
+Energy VAD: 30ms RMS frames; threshold = max(1e-4, 95th-percentile × −30 dB); silences < 2s are
+kept inside regions; regions get 0.3s padding; timestamps keep the original timeline. It only
+engages when it would save ≥ 10s (or ≥ 20% of short audio), so continuous recordings keep the
+exact untrimmed chunk plan; if no speech is detected at all it falls back to transcribing
+everything. On the silence-heavy fixture it is **faster (34 vs 40s) and more accurate (4.3 vs
+5.2%)** — the WER win is removing Whisper's silence hallucinations, and the time win grows with
+the silent fraction and with slower models. Conservative by construction: a quiet speaker 25 dB
+under the loud one is fully retained. Opt out with `--no-skip-silence` (e.g. music with long
+genuinely-quiet passages).
+
 ## Historical context — the conditioning-ON loop (superseded)
 
 These runs used `condition_on_previous_text=True` (the old default) and are kept to document why
@@ -94,4 +136,7 @@ highly chunk-boundary-sensitive. Disabling it (now the default) eliminated them.
 - **Default model = turbo (speed).** Turbo (~4.8% WER, ~35s) is the default; large-v3 (~3.9% WER) is
   only ~0.9 pt more accurate for ~2.5× the time, so it's an opt-in for precision-critical jobs via
   `--mlx-model mlx-community/whisper-large-v3-mlx`. Chunk default (target 10, floor 120s) is in the safe zone.
-- VAD / silence-skip (unexplored). Parallel chunks unlikely to help — single shared MLX GPU.
+- **Done:** VAD / silence-skip (`--skip-silence`, default ON) + cross-chunk prompt carry removed —
+  see the 2026-06-11 section above.
+- Parallel chunks unlikely to help — single shared MLX GPU. Possible future lever: snap chunk
+  boundaries to detected pauses (VAD already finds them) for even cleaner cuts.

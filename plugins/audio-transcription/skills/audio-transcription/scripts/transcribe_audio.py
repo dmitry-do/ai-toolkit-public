@@ -187,6 +187,77 @@ def plan_chunks(duration, target_chunks=DEFAULT_CHECKPOINT_CHUNKS, floor_seconds
     return [(i * size, duration if i == n - 1 else (i + 1) * size) for i in range(n)]
 
 
+def detect_speech_regions(audio, sample_rate=SAMPLE_RATE, frame_seconds=0.03,
+                          min_silence_seconds=2.0, pad_seconds=0.3):
+    """Find (start, end) speech regions in seconds using frame RMS energy.
+
+    Conservative by design: only silences longer than ``min_silence_seconds``
+    split regions, each region keeps ``pad_seconds`` of margin, and the
+    threshold sits 30 dB under the loud frames (with an absolute floor), so a
+    noisy-but-quiet recording degrades to "everything is speech" rather than
+    to dropped words. Returns [] when no frame rises above the threshold.
+    """
+    np = importlib.import_module("numpy")
+    audio = np.asarray(audio, dtype=np.float32)
+    duration = len(audio) / sample_rate
+    frame = max(1, int(frame_seconds * sample_rate))
+    n_frames = len(audio) // frame
+    if n_frames == 0:
+        return [(0.0, duration)] if duration > 0 else []
+    frame_s = frame / sample_rate
+    frames = audio[: n_frames * frame].reshape(n_frames, frame).astype(np.float64)
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    threshold = max(1e-4, float(np.percentile(rms, 95)) * 10 ** (-30 / 20))
+    speech = rms >= threshold
+    if not speech.any():
+        return []
+
+    raw = []
+    start = None
+    for index, is_speech in enumerate(speech):
+        if is_speech and start is None:
+            start = index
+        elif not is_speech and start is not None:
+            raw.append((start * frame_s, index * frame_s))
+            start = None
+    if start is not None:
+        raw.append((start * frame_s, duration))
+
+    merged = [list(raw[0])]
+    for region_start, region_end in raw[1:]:
+        if region_start - merged[-1][1] < min_silence_seconds:
+            merged[-1][1] = region_end
+        else:
+            merged.append([region_start, region_end])
+    return [
+        (max(0.0, s - pad_seconds), min(duration, e + pad_seconds)) for s, e in merged
+    ]
+
+
+def worth_skipping(kept_seconds, duration_seconds, min_save_seconds=10.0,
+                   min_save_fraction=0.2):
+    """Whether trimming silence saves enough time to justify moving chunk
+    boundaries away from the untrimmed plan."""
+    saved = duration_seconds - kept_seconds
+    return saved >= min(min_save_seconds, min_save_fraction * duration_seconds)
+
+
+def plan_chunks_over_regions(regions, target_chunks=DEFAULT_CHECKPOINT_CHUNKS,
+                             floor_seconds=DEFAULT_CHECKPOINT_MIN_SECONDS):
+    """Apportion ``target_chunks`` across speech regions, then chunk each region.
+
+    Returns (start, end) chunks in original-timeline seconds; the gaps between
+    regions are simply absent from the plan, so silence is never transcribed.
+    """
+    total = sum(end - start for start, end in regions)
+    chunks = []
+    for start, end in regions:
+        share = max(1, round(target_chunks * (end - start) / total)) if total > 0 else 1
+        for chunk_start, chunk_end in plan_chunks(end - start, share, floor_seconds):
+            chunks.append((start + chunk_start, start + chunk_end))
+    return chunks
+
+
 def offset_segments(segments, offset):
     """Return copies of ``segments`` with start/end shifted by ``offset`` seconds."""
     shifted = []
@@ -196,13 +267,6 @@ def offset_segments(segments, offset):
         moved["end"] = seg.get("end", 0.0) + offset
         shifted.append(moved)
     return shifted
-
-
-def build_chunk_prompt(base_prompt, prev_text, tail_chars=200):
-    """Combine the user prompt with the tail of the previous chunk's text."""
-    tail = prev_text[-tail_chars:].strip() if prev_text else ""
-    parts = [part for part in (base_prompt, tail) if part]
-    return " ".join(parts).strip() or None
 
 
 def transcribe_chunked(audio, chunks, transcribe_fn, on_progress, base_prompt=None, resume_state=None):
@@ -226,8 +290,10 @@ def transcribe_chunked(audio, chunks, transcribe_fn, on_progress, base_prompt=No
     for index in range(start_index, len(chunks)):
         start_s, end_s = chunks[index]
         slice_audio = audio[int(start_s * SAMPLE_RATE):int(end_s * SAMPLE_RATE)]
-        prompt = build_chunk_prompt(base_prompt, text_parts[-1] if text_parts else "")
-        result = transcribe_fn(slice_audio, prompt, language)
+        # Pass only the user's prompt — never the previous chunk's text. A carried
+        # tail conditions the decoder across the boundary, which can make Whisper
+        # silently drop the head of the chunk (measured: 75 words / 30 s lost).
+        result = transcribe_fn(slice_audio, base_prompt, language)
         if language is None:
             language = result.get("language")
         all_segments.extend(offset_segments(result.get("segments") or [], start_s))
@@ -534,6 +600,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_CHECKPOINT_MIN_SECONDS,
         help="Minimum chunk length in seconds; prevents tiny chunks on short audio.",
     )
+    parser.add_argument(
+        "--skip-silence",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Detect speech regions by energy and skip silences longer than ~2s "
+        "instead of transcribing them (on by default; only engages when it saves "
+        "meaningful time). Timestamps keep the original timeline. "
+        "Disable with --no-skip-silence.",
+    )
     parser.add_argument("--check", action="store_true", help="Check local dependencies and print install hints.")
     return parser
 
@@ -560,15 +635,35 @@ def main() -> None:
 
     with transcription_slot(args.lock_dir, args.parallel_slots):
         chunks = []
-        if args.checkpoint_chunks > 1:
+        trimmed = False
+        if args.checkpoint_chunks > 1 or args.skip_silence:
             audio = load_audio_array(backend, args.audio)
-            chunks = plan_chunks(
-                len(audio) / SAMPLE_RATE,
+            duration = len(audio) / SAMPLE_RATE
+            regions = [(0.0, duration)]
+            if args.skip_silence:
+                detected = detect_speech_regions(audio)
+                kept = sum(end - start for start, end in detected)
+                if not detected:
+                    print(
+                        "Silence skip: no speech detected above the threshold; "
+                        "transcribing the full audio.",
+                        file=sys.stderr,
+                    )
+                elif worth_skipping(kept, duration):
+                    regions = detected
+                    print(
+                        f"Silence skip: transcribing {kept:.0f}s of speech in "
+                        f"{len(detected)} regions (skipping {duration - kept:.0f}s of silence).",
+                        file=sys.stderr,
+                    )
+            trimmed = regions != [(0.0, duration)]
+            chunks = plan_chunks_over_regions(
+                regions,
                 args.checkpoint_chunks,
                 args.checkpoint_min_seconds,
             )
 
-        if len(chunks) > 1:
+        if len(chunks) > 1 or trimmed:
             device = None if backend == "mlx" else choose_device(args.device)
             transcribe_fn = (
                 make_mlx_transcribe_fn(model_name, args)

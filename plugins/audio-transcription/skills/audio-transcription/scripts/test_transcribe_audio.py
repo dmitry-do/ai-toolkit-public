@@ -99,9 +99,12 @@ class TranscribeChunkedTests(unittest.TestCase):
         self.assertIsNone(calls[0]["language"])
         self.assertEqual(calls[1]["language"], "en")
         self.assertEqual(result["language"], "en")
-        # base prompt present in first chunk; prior text carried into later chunk
-        self.assertIn("ctx", calls[0]["prompt"])
-        self.assertIn("chunk0", calls[1]["prompt"])
+        # every chunk gets exactly the user prompt — never the previous chunk's
+        # text, which acts as cross-boundary conditioning and can make Whisper
+        # silently drop the head of the next chunk (measured: 75 words lost)
+        self.assertEqual(calls[0]["prompt"], "ctx")
+        self.assertEqual(calls[1]["prompt"], "ctx")
+        self.assertEqual(calls[2]["prompt"], "ctx")
         # accumulated text merged in order
         self.assertEqual(result["text"], "chunk0 chunk1 chunk2")
 
@@ -224,9 +227,9 @@ class TranscribeChunkedResumeTests(unittest.TestCase):
 
         # only the final, unfinished chunk is transcribed
         self.assertEqual(len(calls), 1)
-        # restored language is reused (not re-detected), prior text carried into prompt
+        # restored language is reused (not re-detected); prompt is the user's only
         self.assertEqual(calls[0]["language"], "en")
-        self.assertIn("old1", calls[0]["prompt"])
+        self.assertEqual(calls[0]["prompt"], "ctx")
         # accumulated onto the restored segments, with the right offset for chunk index 2
         self.assertEqual([s["text"] for s in result["segments"]], ["old0", "old1", "new0"])
         self.assertEqual(result["segments"][-1]["start"], 20.0)
@@ -302,6 +305,158 @@ class AutoResumeTests(unittest.TestCase):
             self.assertIn("new1", content)
             # sidecar removed after clean completion
             self.assertFalse(ta.progress_path(out).exists())
+
+
+class DetectSpeechRegionsTests(unittest.TestCase):
+    """Energy-based VAD: find speech regions, skipping only long silences."""
+
+    SR = 16000
+
+    def _audio(self, *sections):
+        """Build 16 kHz audio from (seconds, amplitude) sections; amp 0 = silence."""
+        import numpy as np
+
+        parts = []
+        for seconds, amp in sections:
+            n = int(seconds * self.SR)
+            if amp:
+                t = np.arange(n)
+                parts.append((amp * np.sin(2 * np.pi * 440 * t / self.SR)).astype(np.float32))
+            else:
+                parts.append(np.zeros(n, dtype=np.float32))
+        return np.concatenate(parts)
+
+    def test_pure_silence_yields_no_regions(self):
+        self.assertEqual(ta.detect_speech_regions(self._audio((10, 0.0)), self.SR), [])
+
+    def test_continuous_speech_is_one_full_region(self):
+        regions = ta.detect_speech_regions(self._audio((10, 0.1)), self.SR)
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions[0][0], 0.0)
+        self.assertAlmostEqual(regions[0][1], 10.0, delta=0.05)
+
+    def test_long_silence_splits_regions_with_padding(self):
+        audio = self._audio((5, 0.1), (10, 0.0), (5, 0.1))
+        regions = ta.detect_speech_regions(audio, self.SR)
+        self.assertEqual(len(regions), 2)
+        # first region: starts at 0, ends shortly after 5s (padded, not clipped)
+        self.assertEqual(regions[0][0], 0.0)
+        self.assertGreaterEqual(regions[0][1], 5.0)
+        self.assertLess(regions[0][1], 6.0)
+        # second region: starts shortly before 15s, runs to the end
+        self.assertGreater(regions[1][0], 14.0)
+        self.assertLessEqual(regions[1][0], 15.0)
+        self.assertAlmostEqual(regions[1][1], 20.0, delta=0.05)
+
+    def test_short_pause_does_not_split(self):
+        audio = self._audio((5, 0.1), (1, 0.0), (5, 0.1))
+        regions = ta.detect_speech_regions(audio, self.SR)
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions[0][0], 0.0)
+        self.assertAlmostEqual(regions[0][1], 11.0, delta=0.05)
+
+
+class WorthSkippingTests(unittest.TestCase):
+    """Silence skipping engages only when it saves real time."""
+
+    def test_trivial_trim_on_long_audio_is_not_worth_it(self):
+        self.assertFalse(ta.worth_skipping(821.6, 823.0))
+
+    def test_minutes_of_silence_are_worth_it(self):
+        self.assertTrue(ta.worth_skipping(174.0, 474.0))
+
+    def test_large_fraction_of_short_audio_is_worth_it(self):
+        self.assertTrue(ta.worth_skipping(6.6, 12.0))
+
+
+class SkipSilenceDefaultTests(unittest.TestCase):
+    def test_skip_silence_is_on_by_default(self):
+        args = ta.build_parser().parse_args(["a.mp3"])
+        self.assertTrue(args.skip_silence)
+
+    def test_no_skip_silence_opts_out(self):
+        args = ta.build_parser().parse_args(["a.mp3", "--no-skip-silence"])
+        self.assertFalse(args.skip_silence)
+
+
+class PlanChunksOverRegionsTests(unittest.TestCase):
+    def test_single_full_region_matches_plan_chunks(self):
+        self.assertEqual(
+            ta.plan_chunks_over_regions([(0.0, 4440.0)], target_chunks=10, floor_seconds=120.0),
+            ta.plan_chunks(4440.0, target_chunks=10, floor_seconds=120.0),
+        )
+
+    def test_gap_between_regions_is_never_transcribed(self):
+        chunks = ta.plan_chunks_over_regions(
+            [(0.0, 300.0), (500.0, 800.0)], target_chunks=4, floor_seconds=120.0
+        )
+        self.assertEqual(
+            chunks, [(0.0, 150.0), (150.0, 300.0), (500.0, 650.0), (650.0, 800.0)]
+        )
+
+    def test_floor_keeps_short_regions_whole(self):
+        chunks = ta.plan_chunks_over_regions(
+            [(0.0, 100.0), (200.0, 260.0)], target_chunks=10, floor_seconds=120.0
+        )
+        self.assertEqual(chunks, [(0.0, 100.0), (200.0, 260.0)])
+
+
+class SkipSilenceWiringTests(unittest.TestCase):
+    def test_main_skips_silence_and_keeps_original_timestamps(self):
+        import numpy as np
+
+        sr = ta.SAMPLE_RATE
+        t = np.arange(3 * sr)
+        loud = (0.1 * np.sin(2 * np.pi * 440 * t / sr)).astype(np.float32)
+        audio = np.concatenate([loud, np.zeros(6 * sr, dtype=np.float32), loud])
+
+        with tempfile.TemporaryDirectory() as d:
+            audio_path = Path(d) / "a.mp3"
+            audio_path.write_bytes(b"x" * 100)
+            out = Path(d) / "o.md"
+
+            calls = []
+
+            def fake_transcribe(slice_audio, initial_prompt, language):
+                calls.append(len(slice_audio))
+                return {
+                    "segments": [{"start": 0.0, "end": 1.0, "text": f"part{len(calls)}"}],
+                    "text": f"part{len(calls)}",
+                    "language": "en",
+                }
+
+            original = (
+                ta.command_available, ta.choose_backend,
+                ta.load_audio_array, ta.make_mlx_transcribe_fn, sys.argv,
+            )
+            ta.command_available = lambda name: True
+            ta.choose_backend = lambda requested: "mlx"
+            ta.load_audio_array = lambda backend, path: audio
+            ta.make_mlx_transcribe_fn = lambda model, args: fake_transcribe
+            sys.argv = [
+                "transcribe_audio.py", str(audio_path), "--output", str(out),
+                "--skip-silence", "--checkpoint-chunks", "2",
+                "--checkpoint-min-seconds", "1", "--parallel-slots", "0",
+            ]
+            try:
+                with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                    ta.main()
+            finally:
+                (
+                    ta.command_available, ta.choose_backend,
+                    ta.load_audio_array, ta.make_mlx_transcribe_fn, sys.argv,
+                ) = original
+
+            # one call per speech region; the 6s silent middle was never transcribed
+            self.assertEqual(len(calls), 2)
+            for n_samples in calls:
+                self.assertLess(n_samples, 4 * sr)
+            content = out.read_text()
+            self.assertIn("part1", content)
+            self.assertIn("part2", content)
+            # second region's segment keeps the original-timeline offset (~9s)
+            self.assertIn("[00:00-00:01] part1", content)
+            self.assertIn("[00:09-00:10] part2", content)
 
 
 if __name__ == "__main__":
