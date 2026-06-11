@@ -45,8 +45,9 @@ ffmpeg -y -i warandpeace/audio/wap_v1_p1_ch1.mp3 -ss 32.0 -to 855.0 \
     -c:a libmp3lame -q:a 2 warandpeace/audio/wap_v1_p1_ch1_aligned.mp3
 
 # 3b. Run an experiment (everything after `--` is forwarded to transcribe_audio.py)
+# (conditioning is off by default now — pass --condition-previous to re-enable it)
 python3 run.py --label turbo --audio warandpeace/audio/wap_v1_p1_ch1_aligned.mp3 \
-    --ref warandpeace/reference/wap_v1_p1_ch1.txt -- --language en --no-condition-previous
+    --ref warandpeace/reference/wap_v1_p1_ch1.txt -- --language en
 
 # 4. Score an existing transcript directly
 python3 score.py --ref warandpeace/reference/wap_v1_p1_ch1.txt --hyp warandpeace/transcripts/chunked.md
@@ -63,7 +64,8 @@ affect all methods equally, so **relative** comparisons between configs are vali
 - **The villain is `condition_on_previous_text=True`** — it triggers repetition-loop
   hallucinations (single-shot large-v3 → 400% WER). Chunking contains it but loop incidence is
   highly chunk-boundary-sensitive (re-cut audio sent large-v3 to 99.9%).
-- **`--no-condition-previous` eliminates the loops** → clean apples-to-apples accuracy on the
-  framing-free audio: large-v3 **3.9%** WER (85s), turbo **4.8%** (34s).
+- **Disabling `condition_on_previous_text` eliminates the loops** (now the default; re-enable
+  with `--condition-previous`) → clean apples-to-apples accuracy on the framing-free audio:
+  large-v3 **3.9%** WER (85s), turbo **4.8%** (34s).
 - **Bigger isn't worse, looping was:** with conditioning off, large-v3 is slightly *more*
   accurate than turbo; turbo's real edge is being **2.5× faster**. See `results.md`.

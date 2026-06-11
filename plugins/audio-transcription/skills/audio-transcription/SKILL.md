@@ -82,7 +82,7 @@ By default the script transcribes long audio in chunks and rewrites the Markdown
 
 ### Repetition-loop hallucinations
 
-Whisper can fall into a repetition loop (one phrase repeated for minutes), inflating output and dropping real speech. It is driven by `condition_on_previous_text` and is sensitive to chunk boundaries. If the transcript shows a phrase repeating many times, re-run with `--no-condition-previous`, which disables cross-segment conditioning and reliably eliminates the loops (at a small cost to cross-sentence context).
+Whisper can fall into a repetition loop (one phrase repeated for minutes), inflating output and dropping real speech. It is driven by `condition_on_previous_text`, which is **disabled by default** here precisely to prevent these loops. Pass `--condition-previous` to re-enable cross-segment conditioning (slightly better cross-sentence coherence, but it can re-introduce the loops on long audio).
 
 ## Dependency Guidance
 

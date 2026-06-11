@@ -90,7 +90,7 @@ def main(argv):
     c = score.cer(reference, hypothesis)
 
     # crude model guess from passthrough; flags = the passthrough string
-    model = "whisper-large-v3-mlx"
+    model = "whisper-large-v3-turbo"  # the script's default DEFAULT_MLX_MODEL
     if "--mlx-model" in args.passthrough:
         model = args.passthrough[args.passthrough.index("--mlx-model") + 1]
     elif "--whisper-model" in args.passthrough:

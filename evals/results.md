@@ -18,6 +18,7 @@ Hardware: Apple Silicon, mlx-whisper, Python 3.9.6. Lower WER/CER is better.
 | largev3-aligned | aligned | 111 | 99.9 | 60.6 | whisper-large-v3-mlx | `--language en` (cond on) | catastrophic loop, 3287 words |
 | **turbo-aligned-nocond** | aligned | 34 | **4.8** | 2.0 | whisper-large-v3-turbo | `…turbo --no-condition-previous` | loops gone |
 | **largev3-aligned-nocond** | aligned | 85 | **3.9** | 1.6 | whisper-large-v3-mlx | `--no-condition-previous` | loops gone; most accurate |
+| default (turbo, cond-off) | aligned | 34 | 4.8 | 2.0 | whisper-large-v3-turbo | `--language en` (no flags) | **current plugin default** — loop-free, no flags needed |
 
 ## Findings
 
@@ -26,9 +27,9 @@ Hardware: Apple Silicon, mlx-whisper, Python 3.9.6. Lower WER/CER is better.
 - **Chunking helps but doesn't cure it.** Default chunking contained the loop on the full audio
   (large-v3 15.8%, turbo 8.5%), but loop incidence is *highly sensitive to chunk boundaries*:
   re-cutting (aligned) shifted boundaries and re-triggered loops — large-v3 → 99.9%, turbo → 14.3%.
-- **`--no-condition-previous` eliminates the loops** → clean, stable accuracy: turbo 4.8%,
-  large-v3 3.9% on identical framing-free audio. True ASR error ≈ 4% WER / ~2% CER (residual =
-  French phrases + proper nouns, e.g. Lucca→"Lucha").
+- **Disabling `condition_on_previous_text` eliminates the loops** → clean, stable accuracy: turbo
+  4.8%, large-v3 3.9% on identical framing-free audio. True ASR error ≈ 4% WER / ~2% CER (residual
+  = French phrases + proper nouns, e.g. Lucca→"Lucha"). This is now the default (see below).
 - **"Why was large-v3 worse than turbo?"** It wasn't — it was being destroyed by the loop. With
   conditioning off, the bigger model is *slightly more accurate* (3.9% vs 4.8%), as expected.
   Turbo's real edge is **speed: 2.5× faster** (34s vs 85s) for ~1% WER.
@@ -37,8 +38,8 @@ Hardware: Apple Silicon, mlx-whisper, Python 3.9.6. Lower WER/CER is better.
 
 ## Next levers
 
-- **Strongly recommended: make `--no-condition-previous` the default** (`condition_on_previous_text
-  =False`). Prevents the catastrophic-loop failure mode (400%/99.9% WER); accuracy cost is
-  negligible here. Bigger robustness win than the model choice.
+- **Done:** `condition_on_previous_text=False` is now the default (opt back in via
+  `--condition-previous`) — prevents the catastrophic-loop failures (400%/99.9% WER) at negligible
+  accuracy cost. Bigger robustness win than the model choice.
 - Model default is now turbo (speed). For max accuracy at ~2.5× the time, large-v3 + cond-off.
 - VAD / silence-skip. (Parallel chunks unlikely to help — single shared MLX GPU.)
