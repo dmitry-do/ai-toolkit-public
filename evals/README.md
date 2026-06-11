@@ -11,8 +11,9 @@ ground-truth text, so we can compare transcription methods objectively.
 - Audio: LibriVox recording, "War and Peace Vol. 1 (Dole Translation)", section 01
   ("Vol 1 Part 1 Ch 1"), 862s / ~14.4 min.
   <https://librivox.org/war-and-peace-vol-1-1805-1806-by-leo-tolstoy/>
-- Reference text: OCR of the Dole edition on Internet Archive.
-  <https://archive.org/details/warandpeace01dolegoog>
+- Reference text: `warandpeace/reference/source_pages_1-11.md` — proofread canonical text of
+  the Dole edition (OCR of the 1889 Crowell scan, hand-corrected against page images).
+  OCR origin: <https://archive.org/details/warandpeace01dolegoog>
   **Note:** Project Gutenberg's *War and Peace* is the **Maude** translation, not Dole —
   do not use it as the reference (different wording → meaningless WER).
 
@@ -32,10 +33,9 @@ warandpeace/
 ## How to use
 
 ```bash
-# 1. (Re)build the reference text from the Internet Archive OCR
+# 1. (Re)build the Chapter I reference from the proofread canonical text
 cd warandpeace/reference
-curl -sL https://archive.org/download/warandpeace01dolegoog/warandpeace01dolegoog_djvu.txt -o /tmp/wap_dole.txt
-python3 build_reference.py /tmp/wap_dole.txt wap_v1_p1_ch1.txt
+python3 build_reference.py source_pages_1-11.md wap_v1_p1_ch1.txt
 
 # 2. Run the scorer's unit tests
 cd ../.. && python3 -m unittest test_score -v
@@ -50,16 +50,15 @@ python3 score.py --ref warandpeace/reference/wap_v1_p1_ch1.txt --hyp warandpeace
 
 ## Caveats when reading WER
 
-Absolute WER is **inflated** and should not be read as raw ASR error:
+Reported WER slightly overstates raw ASR error because the narrator speaks framing absent from
+the book text ("Vol 1 Part 1 1805 Chapter 1", "End of chapter 1") and reads French phrases. These
+affect all methods equally, so **relative** comparisons between configs are valid.
 
-- The reference is OCR-derived with residual single-character noise.
-- The narrator speaks a structural intro ("Vol 1 Part 1 1805 Chapter 1") absent from the book text.
-- Chunk boundaries can roughen a sentence split across them.
+## Key findings
 
-These affect all methods equally, so **relative** comparisons between configs are valid.
-
-## Key finding so far
-
-Single-shot whisper-large-v3 fell into a **repetition-loop hallucination** (`condition_on_previous_text=True`)
-on the full chapter: WER 399%, and it wasted ~200s of compute looping. The default **chunked**
-path contains the loop (per-chunk conditioning resets): WER 17.9%, wall 89s. See `results.md`.
+- **Single-shot whisper-large-v3 is broken on long audio:** a repetition-loop hallucination
+  (`condition_on_previous_text=True`) from ~07:40 — WER 400%, ~200s wasted looping.
+- **Chunking is a correctness fix** (per-chunk conditioning resets): WER → 15.8%, wall → 89s.
+- **whisper-large-v3-turbo wins on speed AND quality:** 40s (cached) and WER 8.5% vs large-v3's
+  89s / 15.8%. The gap is deletions (turbo 19 vs large-v3 165): large-v3 still hallucinates at
+  chunk seams and drops real speech; turbo is more robust. See `results.md`.
