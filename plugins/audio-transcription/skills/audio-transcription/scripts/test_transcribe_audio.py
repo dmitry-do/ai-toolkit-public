@@ -2,7 +2,11 @@
 
 Run: python3 -m unittest test_transcribe_audio -v
 """
+import contextlib
 import importlib.util
+import io
+import json
+import sys
 import tempfile
 import types
 import unittest
@@ -229,6 +233,75 @@ class TranscribeChunkedResumeTests(unittest.TestCase):
         self.assertEqual(result["text"], "old0 old1 new0")
         # checkpoint reports the absolute completed-chunk count
         self.assertEqual(dones, [3])
+
+
+class AutoResumeTests(unittest.TestCase):
+    """Resume is automatic: a matching sidecar is picked up without any flag."""
+
+    def test_resume_flag_no_longer_exists(self):
+        parser = ta.build_parser()
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["a.mp3", "--resume"])
+
+    def test_main_auto_resumes_from_matching_sidecar(self):
+        with tempfile.TemporaryDirectory() as d:
+            audio_path = Path(d) / "a.mp3"
+            audio_path.write_bytes(b"x" * 100)
+            out = Path(d) / "o.md"
+            chunks = [(0.0, 2.0), (2.0, 4.0)]
+            sig = ta.resume_signature(audio_path, ta.DEFAULT_MLX_MODEL, None, chunks)
+            ta.write_progress(
+                ta.progress_path(out),
+                sig,
+                {
+                    "segments": [{"start": 0.0, "end": 1.0, "text": "old0"}],
+                    "text": "old0",
+                    "language": "en",
+                    "text_parts": ["old0"],
+                    "done": 1,
+                },
+            )
+
+            calls = []
+
+            def fake_transcribe(slice_audio, initial_prompt, language):
+                calls.append(language)
+                return {
+                    "segments": [{"start": 0.0, "end": 1.0, "text": "new1"}],
+                    "text": "new1",
+                    "language": "en",
+                }
+
+            original = (
+                ta.command_available, ta.choose_backend,
+                ta.load_audio_array, ta.make_mlx_transcribe_fn, sys.argv,
+            )
+            ta.command_available = lambda name: True
+            ta.choose_backend = lambda requested: "mlx"
+            ta.load_audio_array = lambda backend, path: [0.0] * (4 * ta.SAMPLE_RATE)
+            ta.make_mlx_transcribe_fn = lambda model, args: fake_transcribe
+            sys.argv = [
+                "transcribe_audio.py", str(audio_path), "--output", str(out),
+                "--checkpoint-chunks", "2", "--checkpoint-min-seconds", "1",
+                "--parallel-slots", "0",
+            ]
+            try:
+                with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                    ta.main()
+            finally:
+                (
+                    ta.command_available, ta.choose_backend,
+                    ta.load_audio_array, ta.make_mlx_transcribe_fn, sys.argv,
+                ) = original
+
+            # only the unfinished chunk was transcribed
+            self.assertEqual(len(calls), 1)
+            content = out.read_text()
+            self.assertIn("old0", content)
+            self.assertIn("new1", content)
+            # sidecar removed after clean completion
+            self.assertFalse(ta.progress_path(out).exists())
 
 
 if __name__ == "__main__":

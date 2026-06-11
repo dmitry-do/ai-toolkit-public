@@ -529,13 +529,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target number of incremental write checkpoints. 1 disables chunking (single-shot).",
     )
     parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Resume a chunked transcription from the last completed chunk, using the "
-        "<output>.progress.json sidecar written automatically during chunked runs. "
-        "Only resumes when the audio, model, language, and chunk plan are unchanged.",
-    )
-    parser.add_argument(
         "--checkpoint-min-seconds",
         type=float,
         default=DEFAULT_CHECKPOINT_MIN_SECONDS,
@@ -585,24 +578,17 @@ def main() -> None:
 
             prog_file = progress_path(output_path)
             signature = resume_signature(args.audio, model_name, args.language, chunks)
-            resume_state = None
-            if args.resume:
-                resume_state = load_progress(prog_file, signature)
-                if resume_state:
-                    print(
-                        f"Resuming: {resume_state['done']}/{len(chunks)} chunks already done; "
-                        f"continuing from chunk {resume_state['done'] + 1}.",
-                        file=sys.stderr,
-                    )
-                else:
-                    print(
-                        "No compatible saved progress found; starting from the first chunk.",
-                        file=sys.stderr,
-                    )
+            resume_state = load_progress(prog_file, signature)
+            if resume_state:
+                print(
+                    f"Resuming: {resume_state['done']}/{len(chunks)} chunks already done; "
+                    f"continuing from chunk {resume_state['done'] + 1}.",
+                    file=sys.stderr,
+                )
             elif prog_file.exists():
                 print(
-                    f"Found saved progress at {prog_file.name}; pass --resume to continue "
-                    "instead of restarting.",
+                    "Saved progress found but it does not match this run "
+                    "(audio, model, language, or chunk plan changed); starting fresh.",
                     file=sys.stderr,
                 )
 
@@ -630,8 +616,8 @@ def main() -> None:
                 if prog_file.exists():
                     print(f"\nA chunk failed: {exc}", file=sys.stderr)
                     print(
-                        f"Progress was saved to {prog_file}. Re-run the same command with "
-                        "--resume to continue from the last completed chunk.",
+                        f"Progress was saved to {prog_file}. Re-run the same command to "
+                        "resume from the last completed chunk automatically.",
                         file=sys.stderr,
                     )
                 raise
