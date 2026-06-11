@@ -61,11 +61,17 @@ affect all methods equally, so **relative** comparisons between configs are vali
 
 ## Key findings
 
-- **The villain is `condition_on_previous_text=True`** — it triggers repetition-loop
-  hallucinations (single-shot large-v3 → 400% WER). Chunking contains it but loop incidence is
-  highly chunk-boundary-sensitive (re-cut audio sent large-v3 to 99.9%).
-- **Disabling `condition_on_previous_text` eliminates the loops** (now the default; re-enable
-  with `--condition-previous`) → clean apples-to-apples accuracy on the framing-free audio:
-  large-v3 **3.9%** WER (85s), turbo **4.8%** (34s).
-- **Bigger isn't worse, looping was:** with conditioning off, large-v3 is slightly *more*
-  accurate than turbo; turbo's real edge is being **2.5× faster**. See `results.md`.
+See `results.md` for the full model × chunk-size sweep. Headlines:
+
+- **Best-accuracy model = large-v3 ("normal").** Conditioning off, large-v3 beats turbo at every
+  matched chunk size; its best is **3.8% WER / 1.5% CER** (5 chunks ≈ 165s each) vs turbo's best
+  4.2%. The edge is small (~0.4–0.9 pt) and costs **~2.5× wall time** — so turbo stays the plugin
+  default (speed); opt into large-v3 for precision via `--mlx-model mlx-community/whisper-large-v3-mlx`.
+- **Chunk size: flat in the safe zone, cliff past it.** large-v3 is 3.8–4.3% for n=1–10 (chunks
+  ≥ ~82s) but **collapses to 15% at n=16 (51s chunks)** — that failure is *boundary deletion*
+  (~222 words lost), not a loop. Keep chunks comfortably above Whisper's 30s window; the
+  `--checkpoint-min-seconds 120` floor enforces this. Don't lower it below ~120s.
+- **The villain was `condition_on_previous_text=True`** — repetition-loop hallucinations
+  (single-shot large-v3 → 400% WER). Disabling it (now the default; re-enable with
+  `--condition-previous`) eliminates them, making even no-chunking single-shot clean (large-v3 4.0%).
+  Chunking is no longer needed to contain loops — only for incremental checkpoints.

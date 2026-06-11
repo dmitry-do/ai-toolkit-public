@@ -18,7 +18,12 @@ On any Apple Silicon Mac (`darwin` with `arm64` or `aarch64`), use `mlx-whisper`
 - Check for Apple Silicon with `uname -s` and `uname -m`, or use the bundled script's `--check`.
 - If Apple Silicon is detected and `mlx-whisper` is missing, stop and ask the user before installing it.
 - Do not use the `openai-whisper`/Torch backend on Apple Silicon for this skill.
-- Default MLX model: `mlx-community/whisper-large-v3-turbo`.
+- Default MLX model: `mlx-community/whisper-large-v3-turbo` — **use turbo by default.** It is fast and accurate enough for almost everything.
+- Accuracy vs. speed tradeoff (measured on our eval fixture; see `evals/results.md`):
+  - **Accuracy:** the larger `mlx-community/whisper-large-v3-mlx` is only marginally more precise — about **96% vs. ~95% word accuracy** (≈0.9 percentage points lower word-error rate; ~10–20% fewer word errors).
+  - **Speed:** that precision costs **~2.5× the time.**
+  - **Example — a 10-minute recording (Apple Silicon):** turbo finishes in **~25 s**; large-v3 takes **~60 s** for that ~1-point accuracy gain. Both are far faster than realtime.
+  - **Rule of thumb:** stick with turbo. Reach for `--mlx-model mlx-community/whisper-large-v3-mlx` only when transcript precision matters more than turnaround (e.g. legal/medical wording, hard-to-hear audio).
 - Model source: `https://huggingface.co/mlx-community/whisper-large-v3-turbo`.
 - `mlx-whisper` can load the model directly from Hugging Face with `path_or_hf_repo="mlx-community/whisper-large-v3-turbo"`; the first run may download model weights.
 - Manual model download command, if the user approves network access:
@@ -62,7 +67,7 @@ Common commands:
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3"
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3" --output "recording.md" --language en
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "meeting-recording.m4a" --title "Meeting Recording" --note "Optional context"
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3" --backend mlx --mlx-model mlx-community/whisper-large-v3-turbo
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3" --backend mlx --mlx-model mlx-community/whisper-large-v3-mlx  # large-v3 = ~1pp more accurate, ~2.5× slower
 ```
 
 Non-Apple-Silicon fallback command:
