@@ -19,6 +19,7 @@ On any Apple Silicon Mac (`darwin` with `arm64` or `aarch64`), use `mlx-whisper`
 - If Apple Silicon is detected and `mlx-whisper` is missing, stop and ask the user before installing it.
 - Do not use the `openai-whisper`/Torch backend on Apple Silicon for this skill.
 - Default MLX model: `mlx-community/whisper-large-v3-turbo` — **use turbo by default.** It is fast and accurate enough for almost everything.
+- **Multilingual:** both models support ~99 languages and **auto-detect the spoken language** when `--language` is omitted (the detected language is written to the output). Pass `--language <code>` (e.g. `en`, `es`, `ru`) to pin it. Accuracy varies by language and is generally highest for English; the figures below were measured on English audio.
 - Accuracy vs. speed tradeoff (measured on our eval fixture; see `evals/results.md`):
   - **Accuracy:** the larger `mlx-community/whisper-large-v3-mlx` is only marginally more precise — about **96% vs. ~95% word accuracy** (≈0.9 percentage points lower word-error rate; ~10–20% fewer word errors).
   - **Speed:** that precision costs **~2.5× the time.**
