@@ -48,6 +48,32 @@ so chunk length = 823s ÷ n. Models cached, so wall excludes any first-use downl
   loops; it only earns incremental on-disk checkpoints (and, past the safe zone, hurts).
 - Residual ~4% WER is French phrases + proper nouns (Lucca→"Lucha", etc.), shared by all configs.
 
+## Long audio: does chunking matter? (40-min loop test)
+
+The aligned clip looped 3× into a **2469s (~41 min)** file (`/tmp/loop40.mp3`, regenerate with
+`ffmpeg -f concat`), scored against a 3×-concatenated 6420-word reference. Single-shot vs the default
+10-chunk plan, both models, conditioning off:
+
+| config | chunks | chunk len | wall_s | WER% | CER% |
+|--------|-------:|----------:|-------:|-----:|-----:|
+| turbo | 1 (single-shot) | 2469s | 91 | 4.3 | 1.5 |
+| turbo | 10 (default) | ~247s | 97 | 4.3 | 1.7 |
+| large-v3 | 1 (single-shot) | 2469s | 246 | 4.0 | 1.5 |
+| large-v3 | 10 (default) | ~247s | 250 | 3.9 | 1.6 |
+
+- **Chunking is accuracy-neutral, even at 40 min.** single-shot ≈ chunked for both models (turbo
+  4.3 = 4.3; large-v3 4.0 vs 3.9, within noise), for **~5% extra wall time**. Accuracy also does
+  **not degrade with length** — these match the 13.7-min fixture.
+- **No loops at 40-min single-shot** for *either* model (turbo 4.3%, large-v3 4.0%). Conditioning-off
+  holds at length — even the big model that historically blew up to 400% is stable single-shot now.
+- **But single-shot writes to disk only once, at the very end.** The chunked path writes after every
+  chunk (verified: 481 turbo / 370 large-v3 segments on disk *mid-run*) — a checkpoint roughly every
+  ~4 min on a 40-min job. A crash/interrupt loses everything under single-shot, nothing-since-last-chunk
+  under chunking.
+- **Verdict:** on long audio, **keep chunking on** — not for accuracy (it's a wash) but for the
+  incremental on-disk saves, which cost ~5% time and zero accuracy. The default (target 10, floor 120s)
+  is exactly right: ~10 checkpoints on a 40-min file, and it auto-collapses to single-shot on short clips.
+
 ## Historical context — the conditioning-ON loop (superseded)
 
 These runs used `condition_on_previous_text=True` (the old default) and are kept to document why
