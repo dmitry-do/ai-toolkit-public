@@ -18,9 +18,9 @@ except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None
 
 
-DEFAULT_MLX_MODEL = "mlx-community/whisper-large-v3-mlx"
-MLX_MODEL_SOURCE_URL = "https://huggingface.co/mlx-community/whisper-large-v3-mlx"
-MLX_MODEL_DOWNLOAD_COMMAND = "huggingface-cli download --local-dir whisper-large-v3-mlx mlx-community/whisper-large-v3-mlx"
+DEFAULT_MLX_MODEL = "mlx-community/whisper-large-v3-turbo"
+MLX_MODEL_SOURCE_URL = "https://huggingface.co/mlx-community/whisper-large-v3-turbo"
+MLX_MODEL_DOWNLOAD_COMMAND = "huggingface-cli download --local-dir whisper-large-v3-turbo mlx-community/whisper-large-v3-turbo"
 DEFAULT_WHISPER_MODEL = "large-v3"
 DEFAULT_LOCK_DIR = Path("/tmp/audio-transcription-locks")
 SUPPORTED_AUDIO_SUFFIXES = (".wav", ".mp3", ".m4a")

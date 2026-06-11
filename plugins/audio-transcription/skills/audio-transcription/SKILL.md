@@ -18,17 +18,17 @@ On any Apple Silicon Mac (`darwin` with `arm64` or `aarch64`), use `mlx-whisper`
 - Check for Apple Silicon with `uname -s` and `uname -m`, or use the bundled script's `--check`.
 - If Apple Silicon is detected and `mlx-whisper` is missing, stop and ask the user before installing it.
 - Do not use the `openai-whisper`/Torch backend on Apple Silicon for this skill.
-- Default MLX model: `mlx-community/whisper-large-v3-mlx`.
-- Model source: `https://huggingface.co/mlx-community/whisper-large-v3-mlx`.
-- `mlx-whisper` can load the model directly from Hugging Face with `path_or_hf_repo="mlx-community/whisper-large-v3-mlx"`; the first run may download model weights.
+- Default MLX model: `mlx-community/whisper-large-v3-turbo`.
+- Model source: `https://huggingface.co/mlx-community/whisper-large-v3-turbo`.
+- `mlx-whisper` can load the model directly from Hugging Face with `path_or_hf_repo="mlx-community/whisper-large-v3-turbo"`; the first run may download model weights.
 - Manual model download command, if the user approves network access:
 
   ```bash
   python3 -m pip install 'huggingface_hub[hf_xet]'
-  huggingface-cli download --local-dir whisper-large-v3-mlx mlx-community/whisper-large-v3-mlx
+  huggingface-cli download --local-dir whisper-large-v3-turbo mlx-community/whisper-large-v3-turbo
   ```
 
-  To use the downloaded copy, pass `--mlx-model ./whisper-large-v3-mlx` (or an absolute path) to the bundled script; otherwise the script loads the model from Hugging Face into the HF cache.
+  To use the downloaded copy, pass `--mlx-model ./whisper-large-v3-turbo` (or an absolute path) to the bundled script; otherwise the script loads the model from Hugging Face into the HF cache.
 
 ## Workflow
 
@@ -62,7 +62,7 @@ Common commands:
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3"
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3" --output "recording.md" --language en
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "meeting-recording.m4a" --title "Meeting Recording" --note "Optional context"
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3" --backend mlx --mlx-model mlx-community/whisper-large-v3-mlx
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3" --backend mlx --mlx-model mlx-community/whisper-large-v3-turbo
 ```
 
 Non-Apple-Silicon fallback command:
