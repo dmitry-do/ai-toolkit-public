@@ -53,17 +53,20 @@ def fixture_label(audio_path):
 
 def append_row(results_path, row):
     path = Path(results_path)
-    text = path.read_text(encoding="utf-8") if path.exists() else ""
-    # insert the row right after the table (before a trailing "## Notes" if present)
     line = (
         f"| {row['label']} | {row['fixture']} | {row['wall_s']:.0f} | {row['wer']:.1f} | "
-        f"{row['cer']:.1f} | {row['model']} | {row['flags']} | {row['notes']} |\n"
+        f"{row['cer']:.1f} | {row['model']} | {row['flags']} | {row['notes']} |"
     )
-    if "## Notes" in text:
-        head, _, tail = text.partition("## Notes")
-        path.write_text(head.rstrip() + "\n" + line + "\n## Notes" + tail, encoding="utf-8")
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    # insert right after the last markdown table row, wherever the table sits
+    last_table_row = max(
+        (i for i, l in enumerate(lines) if l.lstrip().startswith("|")), default=None
+    )
+    if last_table_row is None:
+        lines.append(line)
     else:
-        path.write_text(text.rstrip() + "\n" + line, encoding="utf-8")
+        lines.insert(last_table_row + 1, line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main(argv):

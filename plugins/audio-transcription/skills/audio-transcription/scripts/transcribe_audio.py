@@ -243,7 +243,7 @@ def make_mlx_transcribe_fn(model_name, args):
             "path_or_hf_repo": model_name,
             "verbose": False,
             "temperature": 0.0,
-            "condition_on_previous_text": True,
+            "condition_on_previous_text": not getattr(args, "no_condition_previous", False),
             "task": "transcribe",
         }
         if initial_prompt:
@@ -272,7 +272,7 @@ def make_whisper_transcribe_fn(model_name, args, device):
             "temperature": 0,
             "beam_size": args.beam_size,
             "best_of": args.beam_size,
-            "condition_on_previous_text": True,
+            "condition_on_previous_text": not getattr(args, "no_condition_previous", False),
             "fp16": device != "cpu",
         }
         if initial_prompt:
@@ -353,7 +353,7 @@ def transcribe_openai_whisper(
             "temperature": 0,
             "beam_size": args.beam_size,
             "best_of": args.beam_size,
-            "condition_on_previous_text": True,
+            "condition_on_previous_text": not getattr(args, "no_condition_previous", False),
             "fp16": selected_device != "cpu",
         }
         if prompt:
@@ -444,6 +444,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--beam-size", type=int, default=5)
     parser.add_argument("--lock-dir", type=Path, default=DEFAULT_LOCK_DIR)
     parser.add_argument("--parallel-slots", type=int, default=1)
+    parser.add_argument(
+        "--no-condition-previous",
+        action="store_true",
+        help="Disable condition_on_previous_text. Prevents repetition-loop hallucinations at the cost of cross-segment context.",
+    )
     parser.add_argument(
         "--checkpoint-chunks",
         type=int,

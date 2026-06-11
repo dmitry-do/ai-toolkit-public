@@ -80,6 +80,10 @@ By default the script transcribes long audio in chunks and rewrites the Markdown
 - `--checkpoint-chunks N` — target number of checkpoints (default 10). `--checkpoint-chunks 1` disables chunking (single-shot, original behavior).
 - `--checkpoint-min-seconds S` — minimum chunk length (default 120). Chunk boundaries lose cross-chunk context, so smaller chunks transcribe more frequently but can roughen sentences split across a boundary.
 
+### Repetition-loop hallucinations
+
+Whisper can fall into a repetition loop (one phrase repeated for minutes), inflating output and dropping real speech. It is driven by `condition_on_previous_text` and is sensitive to chunk boundaries. If the transcript shows a phrase repeating many times, re-run with `--no-condition-previous`, which disables cross-segment conditioning and reliably eliminates the loops (at a small cost to cross-sentence context).
+
 ## Dependency Guidance
 
 - Use `mlx-whisper` on macOS Apple Silicon. The bundled script enforces this and exits if `--backend whisper` is requested on Apple Silicon.
