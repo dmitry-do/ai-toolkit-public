@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import importlib
 import importlib.util
+import json
 import os
 import platform
 import shutil
@@ -204,17 +205,26 @@ def build_chunk_prompt(base_prompt, prev_text, tail_chars=200):
     return " ".join(parts).strip() or None
 
 
-def transcribe_chunked(audio, chunks, transcribe_fn, on_progress, base_prompt=None):
+def transcribe_chunked(audio, chunks, transcribe_fn, on_progress, base_prompt=None, resume_state=None):
     """Transcribe ``audio`` chunk-by-chunk, persisting after each via ``on_progress``.
 
     ``transcribe_fn(audio_slice, initial_prompt, language)`` returns a result dict.
     ``on_progress(accumulated_result)`` is called after every chunk so the caller
-    can write partial output to disk. Returns the accumulated result dict.
+    can write partial output to disk; ``accumulated_result`` carries ``done`` (the
+    number of chunks finished so far) and ``text_parts`` so progress can be
+    checkpointed and later resumed. Pass ``resume_state`` (from a prior run) to
+    skip the chunks already completed. Returns the accumulated result dict.
     """
-    all_segments = []
-    text_parts = []
-    language = None
-    for start_s, end_s in chunks:
+    if resume_state:
+        all_segments = list(resume_state.get("segments") or [])
+        text_parts = list(resume_state.get("text_parts") or [])
+        language = resume_state.get("language")
+        start_index = int(resume_state.get("done") or 0)
+    else:
+        all_segments, text_parts, language, start_index = [], [], None, 0
+
+    for index in range(start_index, len(chunks)):
+        start_s, end_s = chunks[index]
         slice_audio = audio[int(start_s * SAMPLE_RATE):int(end_s * SAMPLE_RATE)]
         prompt = build_chunk_prompt(base_prompt, text_parts[-1] if text_parts else "")
         result = transcribe_fn(slice_audio, prompt, language)
@@ -224,8 +234,71 @@ def transcribe_chunked(audio, chunks, transcribe_fn, on_progress, base_prompt=No
         chunk_text = (result.get("text") or "").strip()
         if chunk_text:
             text_parts.append(chunk_text)
-        on_progress({"segments": all_segments, "text": " ".join(text_parts), "language": language})
+        on_progress({
+            "segments": all_segments,
+            "text": " ".join(text_parts),
+            "language": language,
+            "text_parts": list(text_parts),
+            "done": index + 1,
+        })
     return {"segments": all_segments, "text": " ".join(text_parts), "language": language}
+
+
+def progress_path(output_path):
+    """Sidecar file recording chunked-transcription progress for ``--resume``."""
+    return output_path.with_name(output_path.name + ".progress.json")
+
+
+def resume_signature(audio_path, model_name, language, chunks):
+    """Identity of a chunked run; resuming is only valid when this is unchanged."""
+    audio_path = Path(audio_path)
+    return {
+        "audio": str(audio_path.resolve()),
+        "audio_size": audio_path.stat().st_size,
+        "model": model_name,
+        "language": language or "",
+        "chunks": [[round(start, 3), round(end, 3)] for start, end in chunks],
+    }
+
+
+def write_progress(progress_file, signature, accumulated):
+    """Atomically persist the signature + accumulated segments and completed-chunk count."""
+    data = dict(signature)
+    data["done"] = accumulated.get("done", 0)
+    data["language_detected"] = accumulated.get("language")
+    data["segments"] = accumulated.get("segments") or []
+    data["text_parts"] = accumulated.get("text_parts") or []
+    progress_file = Path(progress_file)
+    tmp_path = progress_file.with_name(progress_file.name + ".tmp")
+    tmp_path.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(tmp_path, progress_file)
+
+
+def load_progress(progress_file, signature):
+    """Return resumable state when the sidecar matches ``signature``, else ``None``.
+
+    Returns ``None`` if the file is missing/corrupt, the run identity changed
+    (audio, model, language, or chunk plan), or there is nothing useful to resume
+    (no chunk finished yet, or every chunk already finished).
+    """
+    progress_file = Path(progress_file)
+    if not progress_file.exists():
+        return None
+    try:
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    if any(data.get(key) != signature.get(key) for key in signature):
+        return None
+    done = int(data.get("done") or 0)
+    if done <= 0 or done >= len(signature["chunks"]):
+        return None
+    return {
+        "done": done,
+        "segments": data.get("segments") or [],
+        "text_parts": data.get("text_parts") or [],
+        "language": data.get("language_detected"),
+    }
 
 
 def load_audio_array(backend, audio_path):
@@ -456,6 +529,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target number of incremental write checkpoints. 1 disables chunking (single-shot).",
     )
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume a chunked transcription from the last completed chunk, using the "
+        "<output>.progress.json sidecar written automatically during chunked runs. "
+        "Only resumes when the audio, model, language, and chunk plan are unchanged.",
+    )
+    parser.add_argument(
         "--checkpoint-min-seconds",
         type=float,
         default=DEFAULT_CHECKPOINT_MIN_SECONDS,
@@ -502,6 +582,30 @@ def main() -> None:
                 if backend == "mlx"
                 else make_whisper_transcribe_fn(model_name, args, device)
             )
+
+            prog_file = progress_path(output_path)
+            signature = resume_signature(args.audio, model_name, args.language, chunks)
+            resume_state = None
+            if args.resume:
+                resume_state = load_progress(prog_file, signature)
+                if resume_state:
+                    print(
+                        f"Resuming: {resume_state['done']}/{len(chunks)} chunks already done; "
+                        f"continuing from chunk {resume_state['done'] + 1}.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "No compatible saved progress found; starting from the first chunk.",
+                        file=sys.stderr,
+                    )
+            elif prog_file.exists():
+                print(
+                    f"Found saved progress at {prog_file.name}; pass --resume to continue "
+                    "instead of restarting.",
+                    file=sys.stderr,
+                )
+
             print(
                 f"Transcribing {args.audio.name} in {len(chunks)} chunks with {backend}; "
                 "writing after each.",
@@ -510,12 +614,33 @@ def main() -> None:
 
             def write_checkpoint(accumulated):
                 write_markdown(output_path, args.audio, backend, model_name, device, args, accumulated)
+                write_progress(prog_file, signature, accumulated)
                 print(
-                    f"  checkpoint: {len(accumulated['segments'])} segments -> {output_path}",
+                    f"  checkpoint: chunk {accumulated['done']}/{len(chunks)}, "
+                    f"{len(accumulated['segments'])} segments -> {output_path}",
                     file=sys.stderr,
                 )
 
-            result = transcribe_chunked(audio, chunks, transcribe_fn, write_checkpoint, base_prompt=prompt)
+            try:
+                result = transcribe_chunked(
+                    audio, chunks, transcribe_fn, write_checkpoint,
+                    base_prompt=prompt, resume_state=resume_state,
+                )
+            except Exception as exc:
+                if prog_file.exists():
+                    print(f"\nA chunk failed: {exc}", file=sys.stderr)
+                    print(
+                        f"Progress was saved to {prog_file}. Re-run the same command with "
+                        "--resume to continue from the last completed chunk.",
+                        file=sys.stderr,
+                    )
+                raise
+
+            # Completed cleanly — the progress sidecar is no longer needed.
+            try:
+                prog_file.unlink()
+            except OSError:
+                pass
         elif backend == "mlx":
             result, device = transcribe_mlx(args.audio, model_name, args, prompt)
         else:

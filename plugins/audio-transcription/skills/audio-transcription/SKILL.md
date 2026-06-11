@@ -86,6 +86,18 @@ By default the script transcribes long audio in chunks and rewrites the Markdown
 - `--checkpoint-chunks N` — target number of checkpoints (default 10). `--checkpoint-chunks 1` disables chunking (single-shot, original behavior).
 - `--checkpoint-min-seconds S` — minimum chunk length (default 120). Chunk boundaries lose cross-chunk context, so smaller chunks transcribe more frequently but can roughen sentences split across a boundary.
 
+### Resuming after a failure
+
+During a chunked run the script also writes a small sidecar, `<output>.progress.json`, after every chunk (deleted automatically on success). If a chunk fails or the run is interrupted (crash, `Ctrl-C`, machine sleep), re-run the **same command with `--resume`** to pick up from the last completed chunk instead of starting over:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "long.mp3" --output "long.md" --resume
+```
+
+- Resume only proceeds when the run identity is unchanged — same audio (path + size), model, language, and chunk plan. Change any of those (e.g. a different `--checkpoint-chunks`) and it safely starts fresh rather than stitching mismatched chunks.
+- Without `--resume`, a leftover sidecar is detected and the script prints a one-line hint that `--resume` is available; it otherwise restarts from the first chunk.
+- Resume applies to chunked runs only (single-shot writes once, at the end, so there is nothing partial to resume).
+
 ### Repetition-loop hallucinations
 
 Whisper can fall into a repetition loop (one phrase repeated for minutes), inflating output and dropping real speech. It is driven by `condition_on_previous_text`, which is **disabled by default** here precisely to prevent these loops. Pass `--condition-previous` to re-enable cross-segment conditioning (slightly better cross-sentence coherence, but it can re-introduce the loops on long audio).

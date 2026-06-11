@@ -121,5 +121,115 @@ class WriteMarkdownTests(unittest.TestCase):
             self.assertEqual(list(Path(d).glob("*.tmp")), [])
 
 
+class ResumeProgressTests(unittest.TestCase):
+    """Sidecar progress file: write after each chunk, validate before resuming."""
+
+    def _sig(self, chunks, size=123, model="m", audio="/tmp/a.mp3", language="en"):
+        return {
+            "audio": audio,
+            "audio_size": size,
+            "model": model,
+            "language": language,
+            "chunks": [[round(s, 3), round(e, 3)] for s, e in chunks],
+        }
+
+    def _acc(self, done, text_parts, segments=None):
+        return {
+            "segments": segments or [],
+            "text": " ".join(text_parts),
+            "language": "en",
+            "text_parts": list(text_parts),
+            "done": done,
+        }
+
+    def test_write_then_load_round_trips_state(self):
+        chunks = [(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)]
+        sig = self._sig(chunks)
+        acc = self._acc(1, ["a"], [{"start": 0.0, "end": 5.0, "text": "a"}])
+        with tempfile.TemporaryDirectory() as d:
+            pf = Path(d) / "o.md.progress.json"
+            ta.write_progress(pf, sig, acc)
+            state = ta.load_progress(pf, sig)
+        self.assertEqual(state["done"], 1)
+        self.assertEqual(state["text_parts"], ["a"])
+        self.assertEqual(state["language"], "en")
+        self.assertEqual(len(state["segments"]), 1)
+
+    def test_load_returns_none_when_chunk_plan_differs(self):
+        chunks = [(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)]
+        sig = self._sig(chunks)
+        with tempfile.TemporaryDirectory() as d:
+            pf = Path(d) / "o.md.progress.json"
+            ta.write_progress(pf, sig, self._acc(1, ["a"]))
+            # re-cut audio (different boundaries) must invalidate resume
+            self.assertIsNone(ta.load_progress(pf, self._sig([(0.0, 15.0), (15.0, 30.0)])))
+
+    def test_load_returns_none_when_audio_changed(self):
+        chunks = [(0.0, 10.0), (10.0, 20.0)]
+        sig = self._sig(chunks)
+        with tempfile.TemporaryDirectory() as d:
+            pf = Path(d) / "o.md.progress.json"
+            ta.write_progress(pf, sig, self._acc(1, ["a"]))
+            self.assertIsNone(ta.load_progress(pf, self._sig(chunks, size=999)))
+
+    def test_load_returns_none_when_nothing_done_or_complete(self):
+        chunks = [(0.0, 10.0), (10.0, 20.0)]
+        sig = self._sig(chunks)
+        with tempfile.TemporaryDirectory() as d:
+            pf = Path(d) / "o.md.progress.json"
+            ta.write_progress(pf, sig, self._acc(0, []))
+            self.assertIsNone(ta.load_progress(pf, sig))  # nothing done yet
+            ta.write_progress(pf, sig, self._acc(2, ["a", "b"]))
+            self.assertIsNone(ta.load_progress(pf, sig))  # all chunks done
+
+    def test_load_returns_none_when_missing(self):
+        sig = self._sig([(0.0, 10.0), (10.0, 20.0)])
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(ta.load_progress(Path(d) / "nope.json", sig))
+
+
+class TranscribeChunkedResumeTests(unittest.TestCase):
+    def test_resume_skips_done_chunks_and_carries_context(self):
+        audio = list(range(48000))
+        chunks = [(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)]
+        calls = []
+
+        def fake_transcribe(slice_audio, initial_prompt, language):
+            idx = len(calls)
+            calls.append({"prompt": initial_prompt, "language": language})
+            return {
+                "segments": [{"start": 0.0, "end": 5.0, "text": f"new{idx}"}],
+                "text": f"new{idx}",
+                "language": "en",
+            }
+
+        resume_state = {
+            "done": 2,
+            "segments": [
+                {"start": 0.0, "end": 5.0, "text": "old0"},
+                {"start": 10.0, "end": 15.0, "text": "old1"},
+            ],
+            "text_parts": ["old0", "old1"],
+            "language": "en",
+        }
+        dones = []
+        result = ta.transcribe_chunked(
+            audio, chunks, fake_transcribe, lambda a: dones.append(a["done"]),
+            base_prompt="ctx", resume_state=resume_state,
+        )
+
+        # only the final, unfinished chunk is transcribed
+        self.assertEqual(len(calls), 1)
+        # restored language is reused (not re-detected), prior text carried into prompt
+        self.assertEqual(calls[0]["language"], "en")
+        self.assertIn("old1", calls[0]["prompt"])
+        # accumulated onto the restored segments, with the right offset for chunk index 2
+        self.assertEqual([s["text"] for s in result["segments"]], ["old0", "old1", "new0"])
+        self.assertEqual(result["segments"][-1]["start"], 20.0)
+        self.assertEqual(result["text"], "old0 old1 new0")
+        # checkpoint reports the absolute completed-chunk count
+        self.assertEqual(dones, [3])
+
+
 if __name__ == "__main__":
     unittest.main()
