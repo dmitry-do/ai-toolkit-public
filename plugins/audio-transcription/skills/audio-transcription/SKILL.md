@@ -18,23 +18,23 @@ On any Apple Silicon Mac (`darwin` with `arm64` or `aarch64`), use `mlx-whisper`
 - Check for Apple Silicon with `uname -s` and `uname -m`, or use the bundled script's `--check`.
 - If Apple Silicon is detected and `mlx-whisper` is missing, stop and ask the user before installing it.
 - Do not use the `openai-whisper`/Torch backend on Apple Silicon for this skill.
-- Default MLX model: `mlx-community/whisper-large-v3-turbo` — **use turbo by default.** It is fast and accurate enough for almost everything.
+- Default MLX model: `mlx-community/whisper-large-v3-mlx` — **the most accurate model is the default.** Pass `--mlx-model mlx-community/whisper-large-v3-turbo` when turnaround matters more than precision.
 - **Multilingual:** both models support ~99 languages and **auto-detect the spoken language** when `--language` is omitted (the detected language is written to the output). Pass `--language <code>` (e.g. `en`, `es`, `ru`) to pin it. Accuracy varies by language and is generally highest for English; the figures below were measured on English audio.
-- Accuracy vs. speed tradeoff (measured on our eval fixture; see `evals/results.md`):
-  - **Accuracy:** the larger `mlx-community/whisper-large-v3-mlx` is only marginally more precise — about **96% vs. ~95% word accuracy** (≈0.9 percentage points lower word-error rate; ~10–20% fewer word errors).
-  - **Speed:** that precision costs **~2.5× the time.**
-  - **Example — a 10-minute recording (Apple Silicon):** turbo finishes in **~25 s**; large-v3 takes **~60 s** for that ~1-point accuracy gain. Both are far faster than realtime.
-  - **Rule of thumb:** stick with turbo. Reach for `--mlx-model mlx-community/whisper-large-v3-mlx` only when transcript precision matters more than turnaround (e.g. legal/medical wording, hard-to-hear audio).
-- Model source: `https://huggingface.co/mlx-community/whisper-large-v3-turbo`.
-- `mlx-whisper` can load the model directly from Hugging Face with `path_or_hf_repo="mlx-community/whisper-large-v3-turbo"`; the first run may download model weights.
+- Accuracy vs. speed tradeoff (measured on LibriSpeech test-clean/test-other chapters + a LibriVox audiobook chapter; see `evals/results.md` and `evals/librispeech/results.md`):
+  - **Accuracy:** large-v3 beats turbo overall — **3.17% vs 3.33% weighted WER**, with the edge concentrated on clean speech (LibriSpeech clean **1.59% vs 1.90%**, audiobook **3.4% vs 3.8%**); on noisy/accented speech (test-other) they are within noise of each other (4.17% vs 4.02%).
+  - **Speed:** that precision costs **~2.3× the time** — still ~10× realtime.
+  - **Example — a 10-minute recording (Apple Silicon):** large-v3 finishes in **~65 s**; turbo in **~26 s**.
+  - **Rule of thumb:** keep the large-v3 default. Reach for `--mlx-model mlx-community/whisper-large-v3-turbo` for long batches, quick drafts, or anything where a ~5–15% relative accuracy edge isn't worth 2.3× the wait.
+- Model source: `https://huggingface.co/mlx-community/whisper-large-v3-mlx`.
+- `mlx-whisper` can load the model directly from Hugging Face with `path_or_hf_repo="mlx-community/whisper-large-v3-mlx"`; the first run may download model weights.
 - Manual model download command, if the user approves network access:
 
   ```bash
   python3 -m pip install 'huggingface_hub[hf_xet]'
-  huggingface-cli download --local-dir whisper-large-v3-turbo mlx-community/whisper-large-v3-turbo
+  huggingface-cli download --local-dir whisper-large-v3-mlx mlx-community/whisper-large-v3-mlx
   ```
 
-  To use the downloaded copy, pass `--mlx-model ./whisper-large-v3-turbo` (or an absolute path) to the bundled script; otherwise the script loads the model from Hugging Face into the HF cache.
+  To use the downloaded copy, pass `--mlx-model ./whisper-large-v3-mlx` (or an absolute path) to the bundled script; otherwise the script loads the model from Hugging Face into the HF cache.
 
 ## Workflow
 
@@ -68,7 +68,7 @@ Common commands:
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3"
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3" --output "recording.md" --language en
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "meeting-recording.m4a" --title "Meeting Recording" --note "Optional context"
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3" --backend mlx --mlx-model mlx-community/whisper-large-v3-mlx  # large-v3 = ~1pp more accurate, ~2.5× slower
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py "recording.mp3" --backend mlx --mlx-model mlx-community/whisper-large-v3-turbo  # turbo = ~2.3× faster, slightly less accurate
 ```
 
 Non-Apple-Silicon fallback command:
@@ -112,6 +112,23 @@ During a chunked run the script also writes a small sidecar, `<output>.progress.
 - Resume only proceeds when the run identity is unchanged — same audio (path + size), model, language, and chunk plan. Change any of those (e.g. a different `--checkpoint-chunks`) and it safely starts fresh rather than stitching mismatched chunks.
 - To force a full restart, delete the `<output>.progress.json` sidecar before re-running.
 - Resume applies to chunked runs only (single-shot writes once, at the end, so there is nothing partial to resume).
+
+### faster-whisper backend (opt-in, best on hard audio)
+
+`--backend faster` uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2), which decodes with **beam search** (`--beam-size`, default 5) — mlx-whisper is greedy-only. Measured on LibriSpeech chapters (see `evals/librispeech/results.md`): identical to mlx large-v3 on clean speech (1.59% WER), but **~15% relatively more accurate on noisy/accented speech** (3.55% vs 4.17% on test-other) — the best accuracy of any measured config.
+
+- It is never auto-selected: CTranslate2 has no Metal backend, so on Apple Silicon it runs **CPU-only at ~1.5× realtime** (~5.5× slower than mlx large-v3). Reach for it only when transcript precision on hard audio (noisy, accented, far-mic) matters more than turnaround.
+- Requires `python3 -m pip install faster-whisper` (ask the user first). Default model: `large-v3`.
+
+### Second pass (on by default)
+
+After the main transcription the script audits the result against the audio itself (`--second-pass`, default on) and repairs three Whisper failure modes locally:
+
+- **Recovers silently deleted speech.** Whisper fails by leaving a hole — no token, no error. Spans inside speech regions that no segment covers but that contain voiced sound are re-transcribed in isolation and spliced in on the original timeline.
+- **Drops spurious overlays.** On noisy audio Whisper sometimes emits a hallucinated segment (a 30s "Thank you.") *on top of* the real segments at a chunk head. A suspect segment whose span is already covered by other segments is removed.
+- **Retries low-confidence segments.** A segment flagged by Whisper's own quality signals (`avg_logprob`, `compression_ratio`, implausibly sparse text for its span) that is the sole coverage of its audio is re-transcribed as a fresh window and replaced only when the retry scores better.
+
+Measured: on noisy speech (LibriSpeech test-other chapters) it removes hallucination overlays and recovers deletions — large-v3 4.44% → 4.17% WER, turbo 4.05% → 4.02% — and on the audiobook fixture large-v3 3.5% → 3.4%. On clean recordings it self-gates to (near) zero extra model calls, so the cost is ~0–4% wall time. Recovered text that merely duplicates its neighbours (Whisper timestamps under-cover) is discarded. Pass `--no-second-pass` to opt out.
 
 ### Repetition-loop hallucinations
 

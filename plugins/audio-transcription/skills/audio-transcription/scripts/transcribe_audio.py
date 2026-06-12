@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import shutil
 import sys
 import time
@@ -20,10 +21,15 @@ except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None
 
 
-DEFAULT_MLX_MODEL = "mlx-community/whisper-large-v3-turbo"
-MLX_MODEL_SOURCE_URL = "https://huggingface.co/mlx-community/whisper-large-v3-turbo"
-MLX_MODEL_DOWNLOAD_COMMAND = "huggingface-cli download --local-dir whisper-large-v3-turbo mlx-community/whisper-large-v3-turbo"
+# Accuracy-first default (decided 2026-06-12 on LibriSpeech clean/other +
+# War & Peace evals): large-v3 beats turbo overall (weighted 3.17% vs 3.33%
+# WER) at ~2.3x the wall time, still ~10x realtime on Apple Silicon. Pass
+# --mlx-model mlx-community/whisper-large-v3-turbo when speed matters more.
+DEFAULT_MLX_MODEL = "mlx-community/whisper-large-v3-mlx"
+MLX_MODEL_SOURCE_URL = "https://huggingface.co/mlx-community/whisper-large-v3-mlx"
+MLX_MODEL_DOWNLOAD_COMMAND = "huggingface-cli download --local-dir whisper-large-v3-mlx mlx-community/whisper-large-v3-mlx"
 DEFAULT_WHISPER_MODEL = "large-v3"
+DEFAULT_FASTER_MODEL = "large-v3"
 DEFAULT_LOCK_DIR = Path("/tmp/audio-transcription-locks")
 SUPPORTED_AUDIO_SUFFIXES = (".wav", ".mp3", ".m4a")
 SAMPLE_RATE = 16000
@@ -97,6 +103,14 @@ def is_apple_silicon() -> bool:
 def choose_backend(requested: str) -> str:
     has_mlx = module_available("mlx_whisper")
     has_whisper = module_available("whisper") and module_available("torch")
+
+    if requested == "faster":
+        # Explicit opt-in only (never auto-selected): CTranslate2 has no Metal
+        # backend, so on Apple Silicon this runs CPU-only — slower than mlx,
+        # but it decodes with beam search, which mlx-whisper cannot.
+        if not module_available("faster_whisper"):
+            fail("Missing dependency: faster-whisper. Install with: python3 -m pip install faster-whisper", 4)
+        return "faster"
 
     if is_apple_silicon():
         if requested == "whisper":
@@ -321,6 +335,218 @@ def snap_boundaries(chunks, pauses, max_shift_fraction=0.5):
     return [(points[i], points[i + 1]) for i in range(len(points) - 1)]
 
 
+def voiced_seconds(mask, frame_s, start, end):
+    """Seconds of voiced frames inside [start, end), given the *global* frame
+    mask from ``_speech_frame_mask``. The mask must be computed on the whole
+    audio — a slice-local threshold would overdetect on quiet slices."""
+    if mask is None:
+        return 0.0
+    lo = max(0, int(start / frame_s))
+    hi = min(len(mask), int(end / frame_s))
+    if hi <= lo:
+        return 0.0
+    return float(mask[lo:hi].sum()) * frame_s
+
+
+def find_coverage_gaps(segments, regions, min_gap_seconds=1.0):
+    """Spans inside speech ``regions`` that no segment covers — candidate
+    silent deletions. Whisper fails by leaving a hole, not an error token, so
+    the transcript alone can't reveal these; only audio coverage can. Gaps
+    between regions are intentional (skipped silence) and never reported."""
+    covered = sorted(
+        (float(s.get("start", 0.0)), float(s.get("end", 0.0))) for s in segments
+    )
+    merged = []
+    for start, end in covered:
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+
+    gaps = []
+    for region_start, region_end in regions:
+        cursor = region_start
+        for start, end in merged:
+            if end <= region_start or start >= region_end:
+                continue
+            if start - cursor >= min_gap_seconds:
+                gaps.append((cursor, min(start, region_end)))
+            cursor = max(cursor, end)
+        if region_end - cursor >= min_gap_seconds:
+            gaps.append((cursor, region_end))
+    return gaps
+
+
+def segment_suspect(seg, min_avg_logprob=-1.0, max_compression_ratio=2.4,
+                    min_chars_per_second=3.0, min_density_span_seconds=5.0):
+    """Whether a segment's own quality signals say it likely went wrong:
+    decoder unconfident (``avg_logprob``), repetitive (``compression_ratio``),
+    or far too little text for its time span (a deletion leaves a long segment
+    with sparse text). Absent fields are not evidence — fakes and other
+    backends may omit them."""
+    logprob = seg.get("avg_logprob")
+    if logprob is not None and logprob < min_avg_logprob:
+        return True
+    compression = seg.get("compression_ratio")
+    if compression is not None and compression > max_compression_ratio:
+        return True
+    duration = float(seg.get("end", 0.0)) - float(seg.get("start", 0.0))
+    text = str(seg.get("text", "")).strip()
+    if duration >= min_density_span_seconds and len(text) < min_chars_per_second * duration:
+        return True
+    return False
+
+
+def passes_quality_gates(seg):
+    """Acceptance gate for second-pass output: non-empty text, not Whisper's
+    silence signature (high no_speech + low logprob — the standard rule), not
+    a repetition loop. Missing fields pass: absence is not evidence."""
+    text = str(seg.get("text", "")).strip()
+    if not text:
+        return False
+    no_speech = seg.get("no_speech_prob")
+    logprob = seg.get("avg_logprob")
+    if (no_speech is not None and logprob is not None
+            and no_speech > 0.6 and logprob < -1.0):
+        return False
+    compression = seg.get("compression_ratio")
+    if compression is not None and compression > 2.4:
+        return False
+    return True
+
+
+def _norm_tokens(text):
+    return re.findall(r"[a-z0-9]+", str(text).lower())
+
+
+def _covered_fraction(start, end, segments):
+    """Fraction of [start, end] covered by the merged spans of ``segments``."""
+    span = end - start
+    if span <= 0:
+        return 1.0
+    clipped = (
+        (max(start, float(s.get("start", 0.0))), min(end, float(s.get("end", 0.0))))
+        for s in segments
+    )
+    covered = 0.0
+    cursor = start
+    for s, e in sorted(pair for pair in clipped if pair[1] > pair[0]):
+        if e <= cursor:
+            continue
+        covered += e - max(cursor, s)
+        cursor = e
+    return covered / span
+
+
+def _mean_logprob(segments):
+    """Duration-weighted mean avg_logprob, or None when no segment carries one."""
+    pairs = [
+        (s["avg_logprob"], float(s.get("end", 0.0)) - float(s.get("start", 0.0)))
+        for s in segments if s.get("avg_logprob") is not None
+    ]
+    total = sum(duration for _, duration in pairs)
+    if not pairs or total <= 0:
+        return None
+    return sum(logprob * duration for logprob, duration in pairs) / total
+
+
+def second_pass(result, audio, regions, transcribe_fn, prompt,
+                min_gap_seconds=1.0, min_voiced_seconds=0.35, pad_seconds=0.2):
+    """Audit a finished transcription against the audio and repair it locally.
+
+    Repairs, all re-using ``transcribe_fn`` on small windows (a fresh slice
+    with no surrounding context often transcribes cleanly where the original
+    pass failed):
+
+    - *Overlay drop*: a suspect segment whose span is already covered by the
+      other segments is a spurious overlay (e.g. a 30s "Thank you." emitted on
+      top of real segments at a chunk head). Its audio is already transcribed,
+      so it is dropped — re-transcribing it would duplicate the real text
+      (measured: +379 inserted words on a noisy fixture).
+    - *Suspect retry*: a suspect that is the sole coverage of its audio is
+      re-run in isolation and replaced only when the retry passes the quality
+      gates and scores a better mean logprob.
+    - *Gap recovery*: uncovered spans inside speech regions that actually
+      contain voiced sound are re-transcribed and spliced in (deletions).
+      Recovered text the neighbouring segments already carry is discarded —
+      Whisper's timestamps under-cover, so the words at a gap's edges are
+      usually already present next door.
+
+    Returns ``(updated_result, stats)``; the result is returned untouched when
+    nothing was suspect. Cost scales with the amount of suspect audio — zero
+    extra model calls on a clean transcription.
+    """
+    stats = {"gaps_found": 0, "gaps_recovered": 0, "suspects": 0,
+             "replaced": 0, "dropped": 0}
+    original_segments = list(result.get("segments") or [])
+    mask, frame_s, duration = _speech_frame_mask(audio)
+    if mask is None:
+        return result, stats
+    language = result.get("language")
+
+    def retranscribe(start, end):
+        window_start = max(0.0, start - pad_seconds)
+        window_end = min(duration, end + pad_seconds)
+        slice_audio = audio[int(window_start * SAMPLE_RATE):int(window_end * SAMPLE_RATE)]
+        retry = transcribe_fn(slice_audio, prompt, language)
+        return [
+            seg for seg in offset_segments(retry.get("segments") or [], window_start)
+            if passes_quality_gates(seg)
+        ]
+
+    out_segments = []
+    for index, seg in enumerate(original_segments):
+        if segment_suspect(seg):
+            stats["suspects"] += 1
+            seg_start = float(seg.get("start", 0.0))
+            seg_end = float(seg.get("end", 0.0))
+            others = original_segments[:index] + original_segments[index + 1:]
+            if _covered_fraction(seg_start, seg_end, others) >= 0.5:
+                stats["dropped"] += 1
+                continue
+            retry = retranscribe(seg_start, seg_end)
+            retry_score, original_score = _mean_logprob(retry), _mean_logprob([seg])
+            if retry and (retry_score is None or original_score is None
+                          or retry_score > original_score):
+                stats["replaced"] += 1
+                out_segments.extend(retry)
+                continue
+        out_segments.append(seg)
+
+    # Gap search runs on the post-suspect coverage: audio left uncovered by a
+    # dropped overlay stack becomes a genuine gap and is recovered here.
+    for gap_start, gap_end in find_coverage_gaps(out_segments, regions, min_gap_seconds):
+        if voiced_seconds(mask, frame_s, gap_start, gap_end) < min_voiced_seconds:
+            continue
+        stats["gaps_found"] += 1
+        recovered = retranscribe(gap_start, gap_end)
+        neighbour_tokens = set()
+        for s in out_segments:
+            if (float(s.get("end", 0.0)) >= gap_start - 10.0
+                    and float(s.get("start", 0.0)) <= gap_end + 10.0):
+                neighbour_tokens.update(_norm_tokens(s.get("text", "")))
+        kept = []
+        for s in recovered:
+            tokens = _norm_tokens(s.get("text", ""))
+            if (tokens and neighbour_tokens
+                    and sum(t in neighbour_tokens for t in tokens) / len(tokens) >= 0.8):
+                continue
+            kept.append(s)
+        if kept:
+            stats["gaps_recovered"] += 1
+            out_segments.extend(kept)
+
+    if not (stats["suspects"] or stats["gaps_found"]):
+        return result, stats
+    out_segments.sort(key=lambda s: (float(s.get("start", 0.0)), float(s.get("end", 0.0))))
+    updated = dict(result)
+    updated["segments"] = out_segments
+    updated["text"] = " ".join(
+        text for text in (str(s.get("text", "")).strip() for s in out_segments) if text
+    )
+    return updated, stats
+
+
 def worth_skipping(kept_seconds, duration_seconds, min_save_seconds=10.0,
                    min_save_fraction=0.2):
     """Whether trimming silence saves enough time to justify moving chunk
@@ -464,6 +690,9 @@ def load_progress(progress_file, signature):
 
 def load_audio_array(backend, audio_path):
     """Load audio as a 16 kHz mono numpy array using the backend's loader."""
+    if backend == "faster":
+        faster_whisper = importlib.import_module("faster_whisper")
+        return faster_whisper.decode_audio(str(audio_path), sampling_rate=SAMPLE_RATE)
     module_name = "mlx_whisper.audio" if backend == "mlx" else "whisper.audio"
     return importlib.import_module(module_name).load_audio(str(audio_path))
 
@@ -486,6 +715,51 @@ def make_mlx_transcribe_fn(model_name, args):
         if chosen:
             kwargs["language"] = chosen
         return mlx_whisper.transcribe(audio, **kwargs)
+
+    return transcribe_fn
+
+
+def make_faster_transcribe_fn(model_name, args):
+    """Build a transcribe callable for the faster-whisper (CTranslate2) backend.
+
+    Decodes with beam search (``--beam-size``), which mlx-whisper cannot.
+    Segment quality fields are preserved so the second-pass gates work
+    unchanged. CPU-only on Apple Silicon (CTranslate2 has no Metal backend).
+    """
+    faster_whisper = importlib.import_module("faster_whisper")
+    model = faster_whisper.WhisperModel(model_name, device="auto", compute_type="auto")
+
+    def transcribe_fn(audio, initial_prompt, language):
+        kwargs = {
+            "beam_size": args.beam_size,
+            "temperature": 0.0,
+            "condition_on_previous_text": getattr(args, "condition_previous", False),
+            "task": "transcribe",
+        }
+        if initial_prompt:
+            kwargs["initial_prompt"] = initial_prompt
+        chosen = language or args.language
+        if chosen:
+            kwargs["language"] = chosen
+        segments_iter, info = model.transcribe(audio, **kwargs)
+        segments, texts = [], []
+        for seg in segments_iter:
+            segments.append({
+                "start": float(seg.start),
+                "end": float(seg.end),
+                "text": seg.text,
+                "avg_logprob": getattr(seg, "avg_logprob", None),
+                "compression_ratio": getattr(seg, "compression_ratio", None),
+                "no_speech_prob": getattr(seg, "no_speech_prob", None),
+            })
+            stripped = seg.text.strip()
+            if stripped:
+                texts.append(stripped)
+        return {
+            "segments": segments,
+            "text": " ".join(texts),
+            "language": getattr(info, "language", None),
+        }
 
     return transcribe_fn
 
@@ -660,13 +934,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, help="Markdown output path. Defaults to the audio basename with .md.")
     parser.add_argument(
         "--backend",
-        choices=["auto", "mlx", "whisper"],
+        choices=["auto", "mlx", "whisper", "faster"],
         default="auto",
-        help="Backend to use. On Apple Silicon, mlx is required and whisper is rejected.",
+        help="Backend to use. On Apple Silicon, mlx is the default and whisper is "
+        "rejected; faster (CTranslate2 beam search, CPU-only there) is an explicit opt-in.",
     )
     parser.add_argument("--model", help="Model for the selected backend. Overrides backend-specific defaults.")
     parser.add_argument("--mlx-model", default=DEFAULT_MLX_MODEL)
     parser.add_argument("--whisper-model", default=DEFAULT_WHISPER_MODEL)
+    parser.add_argument("--faster-model", default=DEFAULT_FASTER_MODEL)
     parser.add_argument("--model-dir", type=Path, help="Download/cache directory for openai-whisper models.")
     parser.add_argument("--device", default="auto", help="Device for openai-whisper: auto, cpu, cuda, or mps.")
     parser.add_argument("--language", help="Optional language code, such as en. Omit for auto-detection.")
@@ -712,6 +988,16 @@ def build_parser() -> argparse.ArgumentParser:
         "cuts land in silence instead of mid-word (on by default; a no-op when a "
         "boundary already sits in a quiet spot). Disable with --no-snap-boundaries.",
     )
+    parser.add_argument(
+        "--second-pass",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="After transcribing, audit the result against the audio: re-transcribe "
+        "voiced spans the transcript silently skipped (Whisper deletes speech it "
+        "can't handle) and retry low-confidence segments in isolation (on by "
+        "default; makes zero extra model calls on a clean result). "
+        "Disable with --no-second-pass.",
+    )
     parser.add_argument("--check", action="store_true", help="Check local dependencies and print install hints.")
     return parser
 
@@ -732,14 +1018,24 @@ def main() -> None:
         fail("Missing system dependency: ffmpeg. Ask the user before installing it.", 4)
 
     backend = choose_backend(args.backend)
-    model_name = args.model or (args.mlx_model if backend == "mlx" else args.whisper_model)
+    backend_default_model = {
+        "mlx": args.mlx_model,
+        "whisper": args.whisper_model,
+        "faster": args.faster_model,
+    }[backend]
+    model_name = args.model or backend_default_model
     output_path = args.output or args.audio.with_suffix(".md")
     prompt = read_prompt(args)
 
     with transcription_slot(args.lock_dir, args.parallel_slots):
         chunks = []
         trimmed = False
-        if args.checkpoint_chunks > 1 or args.skip_silence:
+        audio = None
+        regions = None
+        transcribe_fn = None
+        device = None
+        if (args.checkpoint_chunks > 1 or args.skip_silence or args.second_pass
+                or backend == "faster"):
             audio = load_audio_array(backend, args.audio)
             duration = len(audio) / SAMPLE_RATE
             regions = [(0.0, duration)]
@@ -777,12 +1073,13 @@ def main() -> None:
                 )
 
         if len(chunks) > 1 or trimmed:
-            device = None if backend == "mlx" else choose_device(args.device)
-            transcribe_fn = (
-                make_mlx_transcribe_fn(model_name, args)
-                if backend == "mlx"
-                else make_whisper_transcribe_fn(model_name, args, device)
-            )
+            if backend == "mlx":
+                transcribe_fn = make_mlx_transcribe_fn(model_name, args)
+            elif backend == "faster":
+                transcribe_fn = make_faster_transcribe_fn(model_name, args)
+            else:
+                device = choose_device(args.device)
+                transcribe_fn = make_whisper_transcribe_fn(model_name, args, device)
 
             prog_file = progress_path(output_path)
             signature = resume_signature(args.audio, model_name, args.language, chunks)
@@ -837,8 +1134,31 @@ def main() -> None:
                 pass
         elif backend == "mlx":
             result, device = transcribe_mlx(args.audio, model_name, args, prompt)
+        elif backend == "faster":
+            print(f"Transcribing {args.audio.name} with faster-whisper (beam_size={args.beam_size})...", file=sys.stderr)
+            transcribe_fn = make_faster_transcribe_fn(model_name, args)
+            result = transcribe_fn(audio, prompt, None)
         else:
             result, device = transcribe_openai_whisper(args.audio, model_name, args, prompt)
+
+        if args.second_pass and audio is not None:
+            if transcribe_fn is None:
+                if backend == "mlx":
+                    transcribe_fn = make_mlx_transcribe_fn(model_name, args)
+                elif backend == "faster":
+                    transcribe_fn = make_faster_transcribe_fn(model_name, args)
+                else:
+                    transcribe_fn = make_whisper_transcribe_fn(
+                        model_name, args, device or choose_device(args.device)
+                    )
+            result, sp_stats = second_pass(result, audio, regions, transcribe_fn, prompt)
+            if sp_stats["suspects"] or sp_stats["gaps_found"]:
+                print(
+                    f"Second pass: recovered {sp_stats['gaps_recovered']}/{sp_stats['gaps_found']} "
+                    f"voiced gaps; of {sp_stats['suspects']} suspect segments, dropped "
+                    f"{sp_stats['dropped']} spurious overlays and replaced {sp_stats['replaced']}.",
+                    file=sys.stderr,
+                )
 
     if not (result.get("segments") or str(result.get("text", "")).strip()):
         fail(f"No transcript text produced for {args.audio}", 3)

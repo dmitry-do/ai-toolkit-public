@@ -550,6 +550,9 @@ class SkipSilenceWiringTests(unittest.TestCase):
                 "transcribe_audio.py", str(audio_path), "--output", str(out),
                 "--skip-silence", "--checkpoint-chunks", "2",
                 "--checkpoint-min-seconds", "1", "--parallel-slots", "0",
+                # the fake covers only 1s of each 3s region, which would rightly
+                # trigger gap recovery — disable it to test silence-skip alone
+                "--no-second-pass",
             ]
             try:
                 with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
@@ -574,3 +577,575 @@ class SkipSilenceWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def _tone_audio(*sections, sr=16000):
+    """Build 16 kHz audio from (seconds, amplitude) sections; amp 0 = silence."""
+    import numpy as np
+
+    parts = []
+    for seconds, amp in sections:
+        n = int(seconds * sr)
+        if amp:
+            t = np.arange(n)
+            parts.append((amp * np.sin(2 * np.pi * 440 * t / sr)).astype(np.float32))
+        else:
+            parts.append(np.zeros(n, dtype=np.float32))
+    return np.concatenate(parts)
+
+
+class FindCoverageGapsTests(unittest.TestCase):
+    """Uncovered spans inside speech regions = candidate Whisper deletions."""
+
+    def test_gap_between_segments_inside_region(self):
+        segments = [
+            {"start": 0.0, "end": 4.0, "text": "a"},
+            {"start": 7.0, "end": 10.0, "text": "b"},
+        ]
+        gaps = ta.find_coverage_gaps(segments, [(0.0, 10.0)])
+        self.assertEqual(gaps, [(4.0, 7.0)])
+
+    def test_gap_shorter_than_minimum_is_ignored(self):
+        segments = [
+            {"start": 0.0, "end": 4.6, "text": "a"},
+            {"start": 5.0, "end": 10.0, "text": "b"},
+        ]
+        self.assertEqual(ta.find_coverage_gaps(segments, [(0.0, 10.0)]), [])
+
+    def test_silence_between_regions_is_not_a_gap(self):
+        segments = [
+            {"start": 0.0, "end": 10.0, "text": "a"},
+            {"start": 50.0, "end": 60.0, "text": "b"},
+        ]
+        # regions already exclude 10-50s: intentional silence, not a deletion
+        gaps = ta.find_coverage_gaps(segments, [(0.0, 10.0), (50.0, 60.0)])
+        self.assertEqual(gaps, [])
+
+    def test_uncovered_region_head_and_tail_are_gaps(self):
+        segments = [{"start": 12.0, "end": 18.0, "text": "a"}]
+        gaps = ta.find_coverage_gaps(segments, [(10.0, 20.0)])
+        self.assertEqual(gaps, [(10.0, 12.0), (18.0, 20.0)])
+
+    def test_no_segments_means_whole_region_is_a_gap(self):
+        self.assertEqual(ta.find_coverage_gaps([], [(0.0, 8.0)]), [(0.0, 8.0)])
+
+    def test_overlapping_segments_are_merged_before_gap_search(self):
+        segments = [
+            {"start": 0.0, "end": 5.0, "text": "a"},
+            {"start": 4.0, "end": 6.0, "text": "b"},
+            {"start": 8.0, "end": 10.0, "text": "c"},
+        ]
+        self.assertEqual(ta.find_coverage_gaps(segments, [(0.0, 10.0)]), [(6.0, 8.0)])
+
+
+class VoicedSecondsTests(unittest.TestCase):
+    """Voiced time inside a window, from the global frame mask."""
+
+    def test_counts_only_voiced_frames_in_window(self):
+        audio = _tone_audio((2, 0.1), (2, 0.0), (2, 0.1))
+        mask, frame_s, _ = ta._speech_frame_mask(audio, 16000)
+        # window covering the silent middle: ~0 voiced
+        self.assertLess(ta.voiced_seconds(mask, frame_s, 2.2, 3.8), 0.2)
+        # window covering the first tone: ~1s voiced
+        self.assertGreater(ta.voiced_seconds(mask, frame_s, 0.5, 1.5), 0.8)
+
+
+class SegmentSuspectTests(unittest.TestCase):
+    def test_low_avg_logprob_is_suspect(self):
+        seg = {"start": 0.0, "end": 3.0, "text": "hello there friend",
+               "avg_logprob": -1.5, "compression_ratio": 1.2}
+        self.assertTrue(ta.segment_suspect(seg))
+
+    def test_high_compression_ratio_is_suspect(self):
+        seg = {"start": 0.0, "end": 3.0, "text": "la la la la la la la",
+               "avg_logprob": -0.2, "compression_ratio": 3.1}
+        self.assertTrue(ta.segment_suspect(seg))
+
+    def test_sparse_text_over_long_span_is_suspect(self):
+        # 10 chars over 8s = 1.25 chars/s — way below plausible speech density
+        seg = {"start": 0.0, "end": 8.0, "text": "uh huh ok",
+               "avg_logprob": -0.3, "compression_ratio": 1.1}
+        self.assertTrue(ta.segment_suspect(seg))
+
+    def test_normal_segment_is_not_suspect(self):
+        seg = {"start": 0.0, "end": 4.0,
+               "text": "the quick brown fox jumps over the lazy dog today",
+               "avg_logprob": -0.25, "compression_ratio": 1.4}
+        self.assertFalse(ta.segment_suspect(seg))
+
+    def test_missing_quality_fields_are_not_suspect(self):
+        # fakes/tests may omit whisper's quality keys; absence is not evidence
+        seg = {"start": 0.0, "end": 2.0, "text": "short normal sentence here"}
+        self.assertFalse(ta.segment_suspect(seg))
+
+
+class QualityGateTests(unittest.TestCase):
+    def test_empty_text_is_rejected(self):
+        self.assertFalse(ta.passes_quality_gates({"start": 0, "end": 1, "text": "  "}))
+
+    def test_whisper_silence_rule_is_rejected(self):
+        seg = {"start": 0, "end": 1, "text": "thanks for watching",
+               "no_speech_prob": 0.9, "avg_logprob": -1.4}
+        self.assertFalse(ta.passes_quality_gates(seg))
+
+    def test_high_compression_is_rejected(self):
+        seg = {"start": 0, "end": 1, "text": "la la la la la",
+               "compression_ratio": 3.0, "avg_logprob": -0.2}
+        self.assertFalse(ta.passes_quality_gates(seg))
+
+    def test_normal_segment_passes(self):
+        seg = {"start": 0, "end": 1, "text": "hello world",
+               "no_speech_prob": 0.05, "avg_logprob": -0.2, "compression_ratio": 1.3}
+        self.assertTrue(ta.passes_quality_gates(seg))
+
+    def test_missing_quality_fields_pass(self):
+        self.assertTrue(ta.passes_quality_gates({"start": 0, "end": 1, "text": "hi"}))
+
+
+class SecondPassTests(unittest.TestCase):
+    """Gap recovery + suspect retry over a finished result."""
+
+    SR = 16000
+
+    def test_recovers_voiced_uncovered_gap(self):
+        # 10s of continuous tone; main result only covers 0-4s -> 4-10s is a
+        # voiced hole that must be re-transcribed and spliced in on the timeline
+        audio = _tone_audio((10, 0.1))
+        result = {
+            "segments": [{"start": 0.0, "end": 4.0, "text": "covered"}],
+            "text": "covered", "language": "en",
+        }
+        calls = []
+
+        def fake_transcribe(slice_audio, prompt, language):
+            calls.append((len(slice_audio), prompt, language))
+            return {"segments": [{"start": 0.5, "end": 5.0, "text": "recovered"}],
+                    "text": "recovered", "language": "en"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 10.0)], fake_transcribe, "ctx")
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1], "ctx")
+        self.assertEqual(calls[0][2], "en")
+        self.assertEqual(stats["gaps_recovered"], 1)
+        texts = [s["text"] for s in out["segments"]]
+        self.assertEqual(texts, ["covered", "recovered"])
+        # recovered segment is offset to the original timeline (window starts ~3.8s)
+        self.assertGreater(out["segments"][1]["start"], 4.0)
+        self.assertEqual(out["text"], "covered recovered")
+
+    def test_silent_gap_is_not_retranscribed(self):
+        # the uncovered 4-10s span is pure silence -> no re-transcription call
+        audio = _tone_audio((4, 0.1), (6, 0.0))
+        result = {
+            "segments": [{"start": 0.0, "end": 4.0, "text": "covered"}],
+            "text": "covered", "language": "en",
+        }
+        calls = []
+
+        def fake_transcribe(slice_audio, prompt, language):
+            calls.append(1)
+            return {"segments": [], "text": ""}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 10.0)], fake_transcribe, None)
+        self.assertEqual(calls, [])
+        self.assertEqual(stats["gaps_recovered"], 0)
+        self.assertEqual([s["text"] for s in out["segments"]], ["covered"])
+
+    def test_recovered_segments_failing_gates_are_dropped(self):
+        audio = _tone_audio((10, 0.1))
+        result = {
+            "segments": [{"start": 0.0, "end": 4.0, "text": "covered"}],
+            "text": "covered", "language": "en",
+        }
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.0, "end": 5.0, "text": "ghost",
+                                  "no_speech_prob": 0.95, "avg_logprob": -1.8}],
+                    "text": "ghost"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 10.0)], fake_transcribe, None)
+        self.assertEqual([s["text"] for s in out["segments"]], ["covered"])
+        self.assertEqual(stats["gaps_recovered"], 0)
+
+    def test_suspect_segment_replaced_when_retry_scores_better(self):
+        audio = _tone_audio((6, 0.1))
+        bad = {"start": 0.0, "end": 6.0, "text": "garbled garbage words here",
+               "avg_logprob": -1.6, "compression_ratio": 1.2}
+        result = {"segments": [bad], "text": bad["text"], "language": "en"}
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.1, "end": 5.9, "text": "clean retry text",
+                                  "avg_logprob": -0.3, "compression_ratio": 1.3}],
+                    "text": "clean retry text"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 6.0)], fake_transcribe, None)
+        self.assertEqual(stats["suspects"], 1)
+        self.assertEqual(stats["replaced"], 1)
+        self.assertEqual([s["text"] for s in out["segments"]], ["clean retry text"])
+        self.assertEqual(out["text"], "clean retry text")
+
+    def test_suspect_segment_kept_when_retry_is_worse(self):
+        audio = _tone_audio((6, 0.1))
+        bad = {"start": 0.0, "end": 6.0, "text": "original suspect text okay",
+               "avg_logprob": -1.2, "compression_ratio": 1.2}
+        result = {"segments": [bad], "text": bad["text"], "language": "en"}
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.0, "end": 6.0, "text": "worse retry",
+                                  "avg_logprob": -2.5, "compression_ratio": 1.3}],
+                    "text": "worse retry"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 6.0)], fake_transcribe, None)
+        self.assertEqual(stats["suspects"], 1)
+        self.assertEqual(stats["replaced"], 0)
+        self.assertEqual([s["text"] for s in out["segments"]],
+                         ["original suspect text okay"])
+
+    def test_clean_result_is_untouched_and_makes_no_calls(self):
+        audio = _tone_audio((6, 0.1))
+        good = {"start": 0.0, "end": 6.0,
+                "text": "a perfectly normal sentence spanning the whole region",
+                "avg_logprob": -0.2, "compression_ratio": 1.4}
+        result = {"segments": [good], "text": good["text"], "language": "en"}
+
+        def fake_transcribe(slice_audio, prompt, language):
+            raise AssertionError("clean result must not trigger re-transcription")
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 6.0)], fake_transcribe, None)
+        self.assertEqual(out["segments"], [good])
+        self.assertEqual(stats, {"gaps_found": 0, "gaps_recovered": 0,
+                                 "suspects": 0, "replaced": 0, "dropped": 0})
+
+
+class SecondPassFlagTests(unittest.TestCase):
+    def test_second_pass_is_on_by_default(self):
+        self.assertTrue(ta.build_parser().parse_args(["a.mp3"]).second_pass)
+
+    def test_no_second_pass_opts_out(self):
+        args = ta.build_parser().parse_args(["a.mp3", "--no-second-pass"])
+        self.assertFalse(args.second_pass)
+
+
+class SecondPassWiringTests(unittest.TestCase):
+    def test_main_recovers_dropped_speech_in_voiced_gap(self):
+        import numpy as np
+
+        sr = ta.SAMPLE_RATE
+        # 12s of continuous tone: one region, chunked in two
+        audio = _tone_audio((12, 0.1), sr=sr)
+
+        with tempfile.TemporaryDirectory() as d:
+            audio_path = Path(d) / "a.mp3"
+            audio_path.write_bytes(b"x" * 100)
+            out = Path(d) / "o.md"
+
+            calls = []
+
+            def fake_transcribe(slice_audio, initial_prompt, language):
+                calls.append(len(slice_audio) / sr)
+                # text long enough to not trip the sparse-density suspect check
+                if len(calls) == 1:
+                    return {"segments": [{"start": 0.0, "end": 6.0,
+                                          "text": "first chunk full of normal spoken words"}],
+                            "text": "first chunk full of normal spoken words",
+                            "language": "en"}
+                if len(calls) == 2:
+                    # whisper "drops" the second chunk's tail: covers only 6-8s
+                    return {"segments": [{"start": 0.0, "end": 2.0, "text": "second"}],
+                            "text": "second", "language": "en"}
+                return {"segments": [{"start": 0.0, "end": 4.0, "text": "rescued"}],
+                        "text": "rescued", "language": "en"}
+
+            original = (
+                ta.command_available, ta.choose_backend,
+                ta.load_audio_array, ta.make_mlx_transcribe_fn, sys.argv,
+            )
+            ta.command_available = lambda name: True
+            ta.choose_backend = lambda requested: "mlx"
+            ta.load_audio_array = lambda backend, path: audio
+            ta.make_mlx_transcribe_fn = lambda model, args: fake_transcribe
+            sys.argv = [
+                "transcribe_audio.py", str(audio_path), "--output", str(out),
+                "--checkpoint-chunks", "2", "--checkpoint-min-seconds", "1",
+                "--no-snap-boundaries", "--parallel-slots", "0",
+            ]
+            try:
+                with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                    ta.main()
+            finally:
+                (
+                    ta.command_available, ta.choose_backend,
+                    ta.load_audio_array, ta.make_mlx_transcribe_fn, sys.argv,
+                ) = original
+
+            # 2 chunk calls + 1 gap-recovery call for the voiced 8-12s hole
+            self.assertEqual(len(calls), 3)
+            self.assertLess(calls[2], 5.0)  # only the hole, not the whole file
+            content = out.read_text()
+            self.assertIn("first", content)
+            self.assertIn("second", content)
+            self.assertIn("rescued", content)
+
+
+class _FakeFasterSegment:
+    def __init__(self, start, end, text, avg_logprob=-0.3, compression_ratio=1.3,
+                 no_speech_prob=0.05):
+        self.start, self.end, self.text = start, end, text
+        self.avg_logprob = avg_logprob
+        self.compression_ratio = compression_ratio
+        self.no_speech_prob = no_speech_prob
+
+
+class FasterBackendTests(unittest.TestCase):
+    """faster-whisper (CTranslate2): explicit opt-in backend with beam search."""
+
+    def _stub_module(self, captured):
+        class FakeModel:
+            def __init__(self, model_name, **kwargs):
+                captured["model_name"] = model_name
+                captured["model_kwargs"] = kwargs
+
+            def transcribe(self, audio, **kwargs):
+                captured["transcribe_kwargs"] = kwargs
+                segments = iter([
+                    _FakeFasterSegment(0.0, 2.0, " hello"),
+                    _FakeFasterSegment(2.0, 4.0, " world"),
+                ])
+                info = types.SimpleNamespace(language="en")
+                return segments, info
+
+        return types.SimpleNamespace(WhisperModel=FakeModel)
+
+    def test_transcribe_fn_converts_to_standard_result_dict(self):
+        captured = {}
+        sys.modules["faster_whisper"] = self._stub_module(captured)
+        try:
+            args = types.SimpleNamespace(beam_size=5, condition_previous=False, language=None)
+            fn = ta.make_faster_transcribe_fn("large-v3", args)
+            result = fn([0.0] * 16000, "ctx", None)
+        finally:
+            del sys.modules["faster_whisper"]
+
+        self.assertEqual(captured["model_name"], "large-v3")
+        self.assertEqual(captured["transcribe_kwargs"]["beam_size"], 5)
+        self.assertEqual(captured["transcribe_kwargs"]["initial_prompt"], "ctx")
+        self.assertEqual(result["language"], "en")
+        self.assertEqual(result["text"], "hello world")
+        seg = result["segments"][0]
+        self.assertEqual((seg["start"], seg["end"]), (0.0, 2.0))
+        # quality fields survive conversion so second-pass gates keep working
+        self.assertEqual(seg["avg_logprob"], -0.3)
+        self.assertEqual(seg["compression_ratio"], 1.3)
+        self.assertEqual(seg["no_speech_prob"], 0.05)
+
+    def test_explicit_faster_is_allowed_even_on_apple_silicon(self):
+        original = (ta.module_available, ta.is_apple_silicon)
+        ta.module_available = lambda name: True
+        ta.is_apple_silicon = lambda: True
+        try:
+            self.assertEqual(ta.choose_backend("faster"), "faster")
+        finally:
+            ta.module_available, ta.is_apple_silicon = original
+
+    def test_missing_faster_whisper_fails_with_install_hint(self):
+        original = ta.module_available
+        ta.module_available = lambda name: name != "faster_whisper"
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                with self.assertRaises(SystemExit) as ctx:
+                    ta.choose_backend("faster")
+            self.assertEqual(ctx.exception.code, 4)
+            self.assertIn("faster-whisper", err.getvalue())
+        finally:
+            ta.module_available = original
+
+    def test_parser_accepts_faster_backend_and_model(self):
+        args = ta.build_parser().parse_args(["a.mp3", "--backend", "faster"])
+        self.assertEqual(args.backend, "faster")
+        self.assertEqual(args.faster_model, "large-v3")
+
+    def test_load_audio_array_uses_decode_audio(self):
+        captured = {}
+
+        def decode_audio(path, sampling_rate):
+            captured["path"], captured["rate"] = path, sampling_rate
+            return [0.0] * sampling_rate
+
+        sys.modules["faster_whisper"] = types.SimpleNamespace(decode_audio=decode_audio)
+        try:
+            out = ta.load_audio_array("faster", Path("/tmp/x.mp3"))
+        finally:
+            del sys.modules["faster_whisper"]
+        self.assertEqual(len(out), 16000)
+        self.assertEqual(captured["rate"], ta.SAMPLE_RATE)
+
+    def test_main_runs_faster_backend_without_touching_torch(self):
+        audio = _tone_audio((4, 0.1))
+
+        with tempfile.TemporaryDirectory() as d:
+            audio_path = Path(d) / "a.mp3"
+            audio_path.write_bytes(b"x" * 100)
+            out = Path(d) / "o.md"
+
+            def fake_transcribe(slice_audio, initial_prompt, language):
+                return {"segments": [{"start": 0.0, "end": 4.0,
+                                      "text": "spoken words from the faster backend"}],
+                        "text": "spoken words from the faster backend",
+                        "language": "en"}
+
+            def explode(requested):
+                raise AssertionError("faster backend must not consult torch devices")
+
+            original = (
+                ta.command_available, ta.choose_backend, ta.choose_device,
+                ta.load_audio_array, ta.make_faster_transcribe_fn, sys.argv,
+            )
+            ta.command_available = lambda name: True
+            ta.choose_backend = lambda requested: "faster"
+            ta.choose_device = explode
+            ta.load_audio_array = lambda backend, path: audio
+            ta.make_faster_transcribe_fn = lambda model, args: fake_transcribe
+            sys.argv = [
+                "transcribe_audio.py", str(audio_path), "--output", str(out),
+                "--backend", "faster", "--parallel-slots", "0",
+            ]
+            try:
+                with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                    ta.main()
+            finally:
+                (
+                    ta.command_available, ta.choose_backend, ta.choose_device,
+                    ta.load_audio_array, ta.make_faster_transcribe_fn, sys.argv,
+                ) = original
+
+            self.assertIn("spoken words from the faster backend", out.read_text())
+
+
+class SecondPassOverlapTests(unittest.TestCase):
+    """Whisper emits spurious segments *on top of* real ones (e.g. a 30s
+    'Thank you.' overlay at a chunk head). Replacing such a segment with a
+    re-transcription of its span duplicates text the overlapping real
+    segments already carry — measured +379 inserted words on LibriSpeech
+    test-other. A suspect whose span is already covered must be dropped."""
+
+    SR = 16000
+
+    def test_suspect_overlay_is_dropped_not_retranscribed(self):
+        audio = _tone_audio((30, 0.1))
+        overlay = {"start": 0.0, "end": 30.0, "text": "Thank you.",
+                   "avg_logprob": -0.5, "compression_ratio": 1.0}
+        real = [
+            {"start": 0.0, "end": 15.0,
+             "text": "a long stretch of perfectly normal narration that covers "
+                     "the first half of the span with plenty of words"},
+            {"start": 15.0, "end": 30.0,
+             "text": "and another long stretch of narration covering the rest "
+                     "of the very same audio span in full"},
+        ]
+        result = {"segments": [overlay] + real, "text": "", "language": "en"}
+
+        def fake_transcribe(slice_audio, prompt, language):
+            raise AssertionError("covered overlay must be dropped, not re-transcribed")
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 30.0)], fake_transcribe, None)
+        self.assertEqual(stats["dropped"], 1)
+        self.assertEqual([s["text"][:6] for s in out["segments"]], ["a long", "and an"])
+
+    def test_sole_coverage_suspect_still_gets_retry(self):
+        # garbage that is the only coverage of its audio: retry is the repair
+        audio = _tone_audio((6, 0.1))
+        bad = {"start": 0.0, "end": 6.0, "text": "garbage here words bad",
+               "avg_logprob": -1.6, "compression_ratio": 1.2}
+        result = {"segments": [bad], "text": bad["text"], "language": "en"}
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.1, "end": 5.9, "text": "clean retry text",
+                                  "avg_logprob": -0.3, "compression_ratio": 1.3}],
+                    "text": "clean retry text"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 6.0)], fake_transcribe, None)
+        self.assertEqual(stats["dropped"], 0)
+        self.assertEqual(stats["replaced"], 1)
+
+    def test_gap_left_by_dropped_overlays_is_recovered(self):
+        # two stacked garbage segments over the same span: both dropped, the
+        # audio they covered becomes a genuine gap and gets re-transcribed
+        audio = _tone_audio((10, 0.1))
+        overlays = [
+            {"start": 0.0, "end": 10.0, "text": "Thank you.",
+             "avg_logprob": -0.5, "compression_ratio": 1.0},
+            {"start": 0.0, "end": 10.0, "text": "Thanks for watching.",
+             "avg_logprob": -0.5, "compression_ratio": 1.0},
+        ]
+        result = {"segments": overlays, "text": "", "language": "en"}
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.5, "end": 9.5,
+                                  "text": "the actual narration spoken in this span",
+                                  "avg_logprob": -0.3, "compression_ratio": 1.3}],
+                    "text": "the actual narration spoken in this span"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 10.0)], fake_transcribe, None)
+        self.assertEqual(stats["dropped"], 2)
+        self.assertEqual(stats["gaps_recovered"], 1)
+        self.assertEqual([s["text"] for s in out["segments"]],
+                         ["the actual narration spoken in this span"])
+
+
+class SecondPassDedupTests(unittest.TestCase):
+    """Whisper timestamps under-cover: the words at a gap's edges are often
+    already in the neighbouring segments' text. Recovered text that merely
+    repeats its neighbours must be dropped (measured: 'cloth.', 'boy.' dups)."""
+
+    SR = 16000
+
+    def test_recovered_text_already_in_neighbours_is_dropped(self):
+        audio = _tone_audio((12, 0.1))
+        result = {
+            "segments": [
+                {"start": 0.0, "end": 5.0,
+                 "text": "she was wearing a dress made of fine cloth"},
+                {"start": 7.0, "end": 12.0,
+                 "text": "the boy ran across the field to greet her"},
+            ],
+            "text": "", "language": "en",
+        }
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.0, "end": 2.0, "text": "cloth. boy.",
+                                  "avg_logprob": -0.4, "compression_ratio": 1.0}],
+                    "text": "cloth. boy."}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 12.0)], fake_transcribe, None)
+        self.assertEqual(stats["gaps_recovered"], 0)
+        self.assertEqual(len(out["segments"]), 2)
+
+    def test_genuinely_new_recovered_text_is_kept(self):
+        audio = _tone_audio((12, 0.1))
+        result = {
+            "segments": [
+                {"start": 0.0, "end": 5.0, "text": "the meeting started at nine"},
+                {"start": 7.0, "end": 12.0, "text": "and ended well after lunch"},
+            ],
+            "text": "", "language": "en",
+        }
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.2, "end": 1.8,
+                                  "text": "everyone agreed on the budget proposal",
+                                  "avg_logprob": -0.3, "compression_ratio": 1.2}],
+                    "text": "everyone agreed on the budget proposal"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 12.0)], fake_transcribe, None)
+        self.assertEqual(stats["gaps_recovered"], 1)
+        self.assertEqual(len(out["segments"]), 3)
+
+
+class AccuracyDefaultTests(unittest.TestCase):
+    """The default model is accuracy-first (decided 2026-06-12 on LibriSpeech
+    clean/other + War & Peace evals): mlx large-v3 beats turbo overall
+    (weighted 3.17% vs 3.33% WER); turbo stays the documented speed opt-in."""
+
+    def test_default_mlx_model_is_large_v3(self):
+        args = ta.build_parser().parse_args(["a.mp3"])
+        self.assertEqual(args.mlx_model, "mlx-community/whisper-large-v3-mlx")

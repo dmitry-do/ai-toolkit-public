@@ -3,6 +3,11 @@
 Measures the `audio-transcription` plugin for **speed vs. quality** against a known
 ground-truth text, so we can compare transcription methods objectively.
 
+There are two fixture sets: the War & Peace audiobook chapter below, and
+`librispeech/` — chapter-level LibriSpeech test-clean/test-other fixtures plus the
+Hugging Face `librispeech_asr_dummy` smoke set (see `librispeech/run_librispeech.py`
+and `librispeech/results.md`).
+
 ## Fixture (public domain)
 
 *War and Peace*, Vol 1, Part 1, Chapter 1 — **Nathan Haskell Dole** translation
@@ -63,10 +68,10 @@ affect all methods equally, so **relative** comparisons between configs are vali
 
 See `results.md` for the full model × chunk-size sweep. Headlines:
 
-- **Best-accuracy model = large-v3 ("normal").** Conditioning off, large-v3 beats turbo at every
-  matched chunk size; its best is **3.8% WER / 1.5% CER** (5 chunks ≈ 165s each) vs turbo's best
-  4.2%. The edge is small (~0.4–0.9 pt) and costs **~2.5× wall time** — so turbo stays the plugin
-  default (speed); opt into large-v3 for precision via `--mlx-model mlx-community/whisper-large-v3-mlx`.
+- **Best-accuracy model = large-v3, and it is now the default (2026-06-12).** Across LibriSpeech
+  clean/other chapters + this fixture (second pass on), large-v3 beats turbo **3.17% vs 3.33%**
+  weighted WER for ~2.3× wall time (still ~10× realtime). Turbo is the speed opt-in via
+  `--mlx-model mlx-community/whisper-large-v3-turbo`.
 - **Chunk size: flat in the safe zone, cliff past it.** large-v3 is 3.8–4.3% for n=1–10 (chunks
   ≥ ~82s) but **collapses to 15% at n=16 (51s chunks)** — that failure is *boundary deletion*
   (~222 words lost), not a loop. Keep chunks comfortably above Whisper's 30s window; the
