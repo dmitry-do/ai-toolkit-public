@@ -24,6 +24,7 @@ DEFAULT_MLX_MODEL = "mlx-community/whisper-large-v3-turbo"
 MLX_MODEL_SOURCE_URL = "https://huggingface.co/mlx-community/whisper-large-v3-turbo"
 MLX_MODEL_DOWNLOAD_COMMAND = "huggingface-cli download --local-dir whisper-large-v3-turbo mlx-community/whisper-large-v3-turbo"
 DEFAULT_WHISPER_MODEL = "large-v3"
+DEFAULT_FASTER_MODEL = "large-v3"
 DEFAULT_LOCK_DIR = Path("/tmp/audio-transcription-locks")
 SUPPORTED_AUDIO_SUFFIXES = (".wav", ".mp3", ".m4a")
 SAMPLE_RATE = 16000
@@ -97,6 +98,14 @@ def is_apple_silicon() -> bool:
 def choose_backend(requested: str) -> str:
     has_mlx = module_available("mlx_whisper")
     has_whisper = module_available("whisper") and module_available("torch")
+
+    if requested == "faster":
+        # Explicit opt-in only (never auto-selected): CTranslate2 has no Metal
+        # backend, so on Apple Silicon this runs CPU-only — slower than mlx,
+        # but it decodes with beam search, which mlx-whisper cannot.
+        if not module_available("faster_whisper"):
+            fail("Missing dependency: faster-whisper. Install with: python3 -m pip install faster-whisper", 4)
+        return "faster"
 
     if is_apple_silicon():
         if requested == "whisper":
@@ -626,6 +635,9 @@ def load_progress(progress_file, signature):
 
 def load_audio_array(backend, audio_path):
     """Load audio as a 16 kHz mono numpy array using the backend's loader."""
+    if backend == "faster":
+        faster_whisper = importlib.import_module("faster_whisper")
+        return faster_whisper.decode_audio(str(audio_path), sampling_rate=SAMPLE_RATE)
     module_name = "mlx_whisper.audio" if backend == "mlx" else "whisper.audio"
     return importlib.import_module(module_name).load_audio(str(audio_path))
 
@@ -648,6 +660,51 @@ def make_mlx_transcribe_fn(model_name, args):
         if chosen:
             kwargs["language"] = chosen
         return mlx_whisper.transcribe(audio, **kwargs)
+
+    return transcribe_fn
+
+
+def make_faster_transcribe_fn(model_name, args):
+    """Build a transcribe callable for the faster-whisper (CTranslate2) backend.
+
+    Decodes with beam search (``--beam-size``), which mlx-whisper cannot.
+    Segment quality fields are preserved so the second-pass gates work
+    unchanged. CPU-only on Apple Silicon (CTranslate2 has no Metal backend).
+    """
+    faster_whisper = importlib.import_module("faster_whisper")
+    model = faster_whisper.WhisperModel(model_name, device="auto", compute_type="auto")
+
+    def transcribe_fn(audio, initial_prompt, language):
+        kwargs = {
+            "beam_size": args.beam_size,
+            "temperature": 0.0,
+            "condition_on_previous_text": getattr(args, "condition_previous", False),
+            "task": "transcribe",
+        }
+        if initial_prompt:
+            kwargs["initial_prompt"] = initial_prompt
+        chosen = language or args.language
+        if chosen:
+            kwargs["language"] = chosen
+        segments_iter, info = model.transcribe(audio, **kwargs)
+        segments, texts = [], []
+        for seg in segments_iter:
+            segments.append({
+                "start": float(seg.start),
+                "end": float(seg.end),
+                "text": seg.text,
+                "avg_logprob": getattr(seg, "avg_logprob", None),
+                "compression_ratio": getattr(seg, "compression_ratio", None),
+                "no_speech_prob": getattr(seg, "no_speech_prob", None),
+            })
+            stripped = seg.text.strip()
+            if stripped:
+                texts.append(stripped)
+        return {
+            "segments": segments,
+            "text": " ".join(texts),
+            "language": getattr(info, "language", None),
+        }
 
     return transcribe_fn
 
@@ -822,13 +879,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, help="Markdown output path. Defaults to the audio basename with .md.")
     parser.add_argument(
         "--backend",
-        choices=["auto", "mlx", "whisper"],
+        choices=["auto", "mlx", "whisper", "faster"],
         default="auto",
-        help="Backend to use. On Apple Silicon, mlx is required and whisper is rejected.",
+        help="Backend to use. On Apple Silicon, mlx is the default and whisper is "
+        "rejected; faster (CTranslate2 beam search, CPU-only there) is an explicit opt-in.",
     )
     parser.add_argument("--model", help="Model for the selected backend. Overrides backend-specific defaults.")
     parser.add_argument("--mlx-model", default=DEFAULT_MLX_MODEL)
     parser.add_argument("--whisper-model", default=DEFAULT_WHISPER_MODEL)
+    parser.add_argument("--faster-model", default=DEFAULT_FASTER_MODEL)
     parser.add_argument("--model-dir", type=Path, help="Download/cache directory for openai-whisper models.")
     parser.add_argument("--device", default="auto", help="Device for openai-whisper: auto, cpu, cuda, or mps.")
     parser.add_argument("--language", help="Optional language code, such as en. Omit for auto-detection.")
@@ -904,7 +963,12 @@ def main() -> None:
         fail("Missing system dependency: ffmpeg. Ask the user before installing it.", 4)
 
     backend = choose_backend(args.backend)
-    model_name = args.model or (args.mlx_model if backend == "mlx" else args.whisper_model)
+    backend_default_model = {
+        "mlx": args.mlx_model,
+        "whisper": args.whisper_model,
+        "faster": args.faster_model,
+    }[backend]
+    model_name = args.model or backend_default_model
     output_path = args.output or args.audio.with_suffix(".md")
     prompt = read_prompt(args)
 
@@ -915,7 +979,8 @@ def main() -> None:
         regions = None
         transcribe_fn = None
         device = None
-        if args.checkpoint_chunks > 1 or args.skip_silence or args.second_pass:
+        if (args.checkpoint_chunks > 1 or args.skip_silence or args.second_pass
+                or backend == "faster"):
             audio = load_audio_array(backend, args.audio)
             duration = len(audio) / SAMPLE_RATE
             regions = [(0.0, duration)]
@@ -953,12 +1018,13 @@ def main() -> None:
                 )
 
         if len(chunks) > 1 or trimmed:
-            device = None if backend == "mlx" else choose_device(args.device)
-            transcribe_fn = (
-                make_mlx_transcribe_fn(model_name, args)
-                if backend == "mlx"
-                else make_whisper_transcribe_fn(model_name, args, device)
-            )
+            if backend == "mlx":
+                transcribe_fn = make_mlx_transcribe_fn(model_name, args)
+            elif backend == "faster":
+                transcribe_fn = make_faster_transcribe_fn(model_name, args)
+            else:
+                device = choose_device(args.device)
+                transcribe_fn = make_whisper_transcribe_fn(model_name, args, device)
 
             prog_file = progress_path(output_path)
             signature = resume_signature(args.audio, model_name, args.language, chunks)
@@ -1013,16 +1079,23 @@ def main() -> None:
                 pass
         elif backend == "mlx":
             result, device = transcribe_mlx(args.audio, model_name, args, prompt)
+        elif backend == "faster":
+            print(f"Transcribing {args.audio.name} with faster-whisper (beam_size={args.beam_size})...", file=sys.stderr)
+            transcribe_fn = make_faster_transcribe_fn(model_name, args)
+            result = transcribe_fn(audio, prompt, None)
         else:
             result, device = transcribe_openai_whisper(args.audio, model_name, args, prompt)
 
         if args.second_pass and audio is not None:
             if transcribe_fn is None:
-                transcribe_fn = (
-                    make_mlx_transcribe_fn(model_name, args)
-                    if backend == "mlx"
-                    else make_whisper_transcribe_fn(model_name, args, device or choose_device(args.device))
-                )
+                if backend == "mlx":
+                    transcribe_fn = make_mlx_transcribe_fn(model_name, args)
+                elif backend == "faster":
+                    transcribe_fn = make_faster_transcribe_fn(model_name, args)
+                else:
+                    transcribe_fn = make_whisper_transcribe_fn(
+                        model_name, args, device or choose_device(args.device)
+                    )
             result, sp_stats = second_pass(result, audio, regions, transcribe_fn, prompt)
             if sp_stats["suspects"] or sp_stats["gaps_found"]:
                 print(

@@ -885,3 +885,137 @@ class SecondPassWiringTests(unittest.TestCase):
             self.assertIn("first", content)
             self.assertIn("second", content)
             self.assertIn("rescued", content)
+
+
+class _FakeFasterSegment:
+    def __init__(self, start, end, text, avg_logprob=-0.3, compression_ratio=1.3,
+                 no_speech_prob=0.05):
+        self.start, self.end, self.text = start, end, text
+        self.avg_logprob = avg_logprob
+        self.compression_ratio = compression_ratio
+        self.no_speech_prob = no_speech_prob
+
+
+class FasterBackendTests(unittest.TestCase):
+    """faster-whisper (CTranslate2): explicit opt-in backend with beam search."""
+
+    def _stub_module(self, captured):
+        class FakeModel:
+            def __init__(self, model_name, **kwargs):
+                captured["model_name"] = model_name
+                captured["model_kwargs"] = kwargs
+
+            def transcribe(self, audio, **kwargs):
+                captured["transcribe_kwargs"] = kwargs
+                segments = iter([
+                    _FakeFasterSegment(0.0, 2.0, " hello"),
+                    _FakeFasterSegment(2.0, 4.0, " world"),
+                ])
+                info = types.SimpleNamespace(language="en")
+                return segments, info
+
+        return types.SimpleNamespace(WhisperModel=FakeModel)
+
+    def test_transcribe_fn_converts_to_standard_result_dict(self):
+        captured = {}
+        sys.modules["faster_whisper"] = self._stub_module(captured)
+        try:
+            args = types.SimpleNamespace(beam_size=5, condition_previous=False, language=None)
+            fn = ta.make_faster_transcribe_fn("large-v3", args)
+            result = fn([0.0] * 16000, "ctx", None)
+        finally:
+            del sys.modules["faster_whisper"]
+
+        self.assertEqual(captured["model_name"], "large-v3")
+        self.assertEqual(captured["transcribe_kwargs"]["beam_size"], 5)
+        self.assertEqual(captured["transcribe_kwargs"]["initial_prompt"], "ctx")
+        self.assertEqual(result["language"], "en")
+        self.assertEqual(result["text"], "hello world")
+        seg = result["segments"][0]
+        self.assertEqual((seg["start"], seg["end"]), (0.0, 2.0))
+        # quality fields survive conversion so second-pass gates keep working
+        self.assertEqual(seg["avg_logprob"], -0.3)
+        self.assertEqual(seg["compression_ratio"], 1.3)
+        self.assertEqual(seg["no_speech_prob"], 0.05)
+
+    def test_explicit_faster_is_allowed_even_on_apple_silicon(self):
+        original = (ta.module_available, ta.is_apple_silicon)
+        ta.module_available = lambda name: True
+        ta.is_apple_silicon = lambda: True
+        try:
+            self.assertEqual(ta.choose_backend("faster"), "faster")
+        finally:
+            ta.module_available, ta.is_apple_silicon = original
+
+    def test_missing_faster_whisper_fails_with_install_hint(self):
+        original = ta.module_available
+        ta.module_available = lambda name: name != "faster_whisper"
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                with self.assertRaises(SystemExit) as ctx:
+                    ta.choose_backend("faster")
+            self.assertEqual(ctx.exception.code, 4)
+            self.assertIn("faster-whisper", err.getvalue())
+        finally:
+            ta.module_available = original
+
+    def test_parser_accepts_faster_backend_and_model(self):
+        args = ta.build_parser().parse_args(["a.mp3", "--backend", "faster"])
+        self.assertEqual(args.backend, "faster")
+        self.assertEqual(args.faster_model, "large-v3")
+
+    def test_load_audio_array_uses_decode_audio(self):
+        captured = {}
+
+        def decode_audio(path, sampling_rate):
+            captured["path"], captured["rate"] = path, sampling_rate
+            return [0.0] * sampling_rate
+
+        sys.modules["faster_whisper"] = types.SimpleNamespace(decode_audio=decode_audio)
+        try:
+            out = ta.load_audio_array("faster", Path("/tmp/x.mp3"))
+        finally:
+            del sys.modules["faster_whisper"]
+        self.assertEqual(len(out), 16000)
+        self.assertEqual(captured["rate"], ta.SAMPLE_RATE)
+
+    def test_main_runs_faster_backend_without_touching_torch(self):
+        audio = _tone_audio((4, 0.1))
+
+        with tempfile.TemporaryDirectory() as d:
+            audio_path = Path(d) / "a.mp3"
+            audio_path.write_bytes(b"x" * 100)
+            out = Path(d) / "o.md"
+
+            def fake_transcribe(slice_audio, initial_prompt, language):
+                return {"segments": [{"start": 0.0, "end": 4.0,
+                                      "text": "spoken words from the faster backend"}],
+                        "text": "spoken words from the faster backend",
+                        "language": "en"}
+
+            def explode(requested):
+                raise AssertionError("faster backend must not consult torch devices")
+
+            original = (
+                ta.command_available, ta.choose_backend, ta.choose_device,
+                ta.load_audio_array, ta.make_faster_transcribe_fn, sys.argv,
+            )
+            ta.command_available = lambda name: True
+            ta.choose_backend = lambda requested: "faster"
+            ta.choose_device = explode
+            ta.load_audio_array = lambda backend, path: audio
+            ta.make_faster_transcribe_fn = lambda model, args: fake_transcribe
+            sys.argv = [
+                "transcribe_audio.py", str(audio_path), "--output", str(out),
+                "--backend", "faster", "--parallel-slots", "0",
+            ]
+            try:
+                with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                    ta.main()
+            finally:
+                (
+                    ta.command_available, ta.choose_backend, ta.choose_device,
+                    ta.load_audio_array, ta.make_faster_transcribe_fn, sys.argv,
+                ) = original
+
+            self.assertIn("spoken words from the faster backend", out.read_text())
