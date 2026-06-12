@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import shutil
 import sys
 import time
@@ -410,6 +411,29 @@ def passes_quality_gates(seg):
     return True
 
 
+def _norm_tokens(text):
+    return re.findall(r"[a-z0-9]+", str(text).lower())
+
+
+def _covered_fraction(start, end, segments):
+    """Fraction of [start, end] covered by the merged spans of ``segments``."""
+    span = end - start
+    if span <= 0:
+        return 1.0
+    clipped = (
+        (max(start, float(s.get("start", 0.0))), min(end, float(s.get("end", 0.0))))
+        for s in segments
+    )
+    covered = 0.0
+    cursor = start
+    for s, e in sorted(pair for pair in clipped if pair[1] > pair[0]):
+        if e <= cursor:
+            continue
+        covered += e - max(cursor, s)
+        cursor = e
+    return covered / span
+
+
 def _mean_logprob(segments):
     """Duration-weighted mean avg_logprob, or None when no segment carries one."""
     pairs = [
@@ -426,21 +450,30 @@ def second_pass(result, audio, regions, transcribe_fn, prompt,
                 min_gap_seconds=1.0, min_voiced_seconds=0.35, pad_seconds=0.2):
     """Audit a finished transcription against the audio and repair it locally.
 
-    Two repairs, both re-using ``transcribe_fn`` on small windows (a fresh
-    slice with no surrounding context often transcribes cleanly where the
-    original pass failed):
+    Repairs, all re-using ``transcribe_fn`` on small windows (a fresh slice
+    with no surrounding context often transcribes cleanly where the original
+    pass failed):
 
+    - *Overlay drop*: a suspect segment whose span is already covered by the
+      other segments is a spurious overlay (e.g. a 30s "Thank you." emitted on
+      top of real segments at a chunk head). Its audio is already transcribed,
+      so it is dropped — re-transcribing it would duplicate the real text
+      (measured: +379 inserted words on a noisy fixture).
+    - *Suspect retry*: a suspect that is the sole coverage of its audio is
+      re-run in isolation and replaced only when the retry passes the quality
+      gates and scores a better mean logprob.
     - *Gap recovery*: uncovered spans inside speech regions that actually
       contain voiced sound are re-transcribed and spliced in (deletions).
-    - *Suspect retry*: segments flagged by ``segment_suspect`` are re-run in
-      isolation and replaced only when the retry passes the quality gates and
-      scores a better mean logprob.
+      Recovered text the neighbouring segments already carry is discarded —
+      Whisper's timestamps under-cover, so the words at a gap's edges are
+      usually already present next door.
 
     Returns ``(updated_result, stats)``; the result is returned untouched when
     nothing was suspect. Cost scales with the amount of suspect audio — zero
     extra model calls on a clean transcription.
     """
-    stats = {"gaps_found": 0, "gaps_recovered": 0, "suspects": 0, "replaced": 0}
+    stats = {"gaps_found": 0, "gaps_recovered": 0, "suspects": 0,
+             "replaced": 0, "dropped": 0}
     original_segments = list(result.get("segments") or [])
     mask, frame_s, duration = _speech_frame_mask(audio)
     if mask is None:
@@ -458,10 +491,16 @@ def second_pass(result, audio, regions, transcribe_fn, prompt,
         ]
 
     out_segments = []
-    for seg in original_segments:
+    for index, seg in enumerate(original_segments):
         if segment_suspect(seg):
             stats["suspects"] += 1
-            retry = retranscribe(float(seg.get("start", 0.0)), float(seg.get("end", 0.0)))
+            seg_start = float(seg.get("start", 0.0))
+            seg_end = float(seg.get("end", 0.0))
+            others = original_segments[:index] + original_segments[index + 1:]
+            if _covered_fraction(seg_start, seg_end, others) >= 0.5:
+                stats["dropped"] += 1
+                continue
+            retry = retranscribe(seg_start, seg_end)
             retry_score, original_score = _mean_logprob(retry), _mean_logprob([seg])
             if retry and (retry_score is None or original_score is None
                           or retry_score > original_score):
@@ -470,16 +509,28 @@ def second_pass(result, audio, regions, transcribe_fn, prompt,
                 continue
         out_segments.append(seg)
 
-    # Gap search uses the *original* coverage: replacements above keep the same
-    # span, and recovered segments must not mask further holes.
-    for gap_start, gap_end in find_coverage_gaps(original_segments, regions, min_gap_seconds):
+    # Gap search runs on the post-suspect coverage: audio left uncovered by a
+    # dropped overlay stack becomes a genuine gap and is recovered here.
+    for gap_start, gap_end in find_coverage_gaps(out_segments, regions, min_gap_seconds):
         if voiced_seconds(mask, frame_s, gap_start, gap_end) < min_voiced_seconds:
             continue
         stats["gaps_found"] += 1
         recovered = retranscribe(gap_start, gap_end)
-        if recovered:
+        neighbour_tokens = set()
+        for s in out_segments:
+            if (float(s.get("end", 0.0)) >= gap_start - 10.0
+                    and float(s.get("start", 0.0)) <= gap_end + 10.0):
+                neighbour_tokens.update(_norm_tokens(s.get("text", "")))
+        kept = []
+        for s in recovered:
+            tokens = _norm_tokens(s.get("text", ""))
+            if (tokens and neighbour_tokens
+                    and sum(t in neighbour_tokens for t in tokens) / len(tokens) >= 0.8):
+                continue
+            kept.append(s)
+        if kept:
             stats["gaps_recovered"] += 1
-            out_segments.extend(recovered)
+            out_segments.extend(kept)
 
     if not (stats["suspects"] or stats["gaps_found"]):
         return result, stats
@@ -1100,8 +1151,8 @@ def main() -> None:
             if sp_stats["suspects"] or sp_stats["gaps_found"]:
                 print(
                     f"Second pass: recovered {sp_stats['gaps_recovered']}/{sp_stats['gaps_found']} "
-                    f"voiced gaps, replaced {sp_stats['replaced']}/{sp_stats['suspects']} "
-                    "suspect segments.",
+                    f"voiced gaps; of {sp_stats['suspects']} suspect segments, dropped "
+                    f"{sp_stats['dropped']} spurious overlays and replaced {sp_stats['replaced']}.",
                     file=sys.stderr,
                 )
 

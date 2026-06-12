@@ -814,7 +814,7 @@ class SecondPassTests(unittest.TestCase):
         out, stats = ta.second_pass(result, audio, [(0.0, 6.0)], fake_transcribe, None)
         self.assertEqual(out["segments"], [good])
         self.assertEqual(stats, {"gaps_found": 0, "gaps_recovered": 0,
-                                 "suspects": 0, "replaced": 0})
+                                 "suspects": 0, "replaced": 0, "dropped": 0})
 
 
 class SecondPassFlagTests(unittest.TestCase):
@@ -1019,3 +1019,123 @@ class FasterBackendTests(unittest.TestCase):
                 ) = original
 
             self.assertIn("spoken words from the faster backend", out.read_text())
+
+
+class SecondPassOverlapTests(unittest.TestCase):
+    """Whisper emits spurious segments *on top of* real ones (e.g. a 30s
+    'Thank you.' overlay at a chunk head). Replacing such a segment with a
+    re-transcription of its span duplicates text the overlapping real
+    segments already carry — measured +379 inserted words on LibriSpeech
+    test-other. A suspect whose span is already covered must be dropped."""
+
+    SR = 16000
+
+    def test_suspect_overlay_is_dropped_not_retranscribed(self):
+        audio = _tone_audio((30, 0.1))
+        overlay = {"start": 0.0, "end": 30.0, "text": "Thank you.",
+                   "avg_logprob": -0.5, "compression_ratio": 1.0}
+        real = [
+            {"start": 0.0, "end": 15.0,
+             "text": "a long stretch of perfectly normal narration that covers "
+                     "the first half of the span with plenty of words"},
+            {"start": 15.0, "end": 30.0,
+             "text": "and another long stretch of narration covering the rest "
+                     "of the very same audio span in full"},
+        ]
+        result = {"segments": [overlay] + real, "text": "", "language": "en"}
+
+        def fake_transcribe(slice_audio, prompt, language):
+            raise AssertionError("covered overlay must be dropped, not re-transcribed")
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 30.0)], fake_transcribe, None)
+        self.assertEqual(stats["dropped"], 1)
+        self.assertEqual([s["text"][:6] for s in out["segments"]], ["a long", "and an"])
+
+    def test_sole_coverage_suspect_still_gets_retry(self):
+        # garbage that is the only coverage of its audio: retry is the repair
+        audio = _tone_audio((6, 0.1))
+        bad = {"start": 0.0, "end": 6.0, "text": "garbage here words bad",
+               "avg_logprob": -1.6, "compression_ratio": 1.2}
+        result = {"segments": [bad], "text": bad["text"], "language": "en"}
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.1, "end": 5.9, "text": "clean retry text",
+                                  "avg_logprob": -0.3, "compression_ratio": 1.3}],
+                    "text": "clean retry text"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 6.0)], fake_transcribe, None)
+        self.assertEqual(stats["dropped"], 0)
+        self.assertEqual(stats["replaced"], 1)
+
+    def test_gap_left_by_dropped_overlays_is_recovered(self):
+        # two stacked garbage segments over the same span: both dropped, the
+        # audio they covered becomes a genuine gap and gets re-transcribed
+        audio = _tone_audio((10, 0.1))
+        overlays = [
+            {"start": 0.0, "end": 10.0, "text": "Thank you.",
+             "avg_logprob": -0.5, "compression_ratio": 1.0},
+            {"start": 0.0, "end": 10.0, "text": "Thanks for watching.",
+             "avg_logprob": -0.5, "compression_ratio": 1.0},
+        ]
+        result = {"segments": overlays, "text": "", "language": "en"}
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.5, "end": 9.5,
+                                  "text": "the actual narration spoken in this span",
+                                  "avg_logprob": -0.3, "compression_ratio": 1.3}],
+                    "text": "the actual narration spoken in this span"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 10.0)], fake_transcribe, None)
+        self.assertEqual(stats["dropped"], 2)
+        self.assertEqual(stats["gaps_recovered"], 1)
+        self.assertEqual([s["text"] for s in out["segments"]],
+                         ["the actual narration spoken in this span"])
+
+
+class SecondPassDedupTests(unittest.TestCase):
+    """Whisper timestamps under-cover: the words at a gap's edges are often
+    already in the neighbouring segments' text. Recovered text that merely
+    repeats its neighbours must be dropped (measured: 'cloth.', 'boy.' dups)."""
+
+    SR = 16000
+
+    def test_recovered_text_already_in_neighbours_is_dropped(self):
+        audio = _tone_audio((12, 0.1))
+        result = {
+            "segments": [
+                {"start": 0.0, "end": 5.0,
+                 "text": "she was wearing a dress made of fine cloth"},
+                {"start": 7.0, "end": 12.0,
+                 "text": "the boy ran across the field to greet her"},
+            ],
+            "text": "", "language": "en",
+        }
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.0, "end": 2.0, "text": "cloth. boy.",
+                                  "avg_logprob": -0.4, "compression_ratio": 1.0}],
+                    "text": "cloth. boy."}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 12.0)], fake_transcribe, None)
+        self.assertEqual(stats["gaps_recovered"], 0)
+        self.assertEqual(len(out["segments"]), 2)
+
+    def test_genuinely_new_recovered_text_is_kept(self):
+        audio = _tone_audio((12, 0.1))
+        result = {
+            "segments": [
+                {"start": 0.0, "end": 5.0, "text": "the meeting started at nine"},
+                {"start": 7.0, "end": 12.0, "text": "and ended well after lunch"},
+            ],
+            "text": "", "language": "en",
+        }
+
+        def fake_transcribe(slice_audio, prompt, language):
+            return {"segments": [{"start": 0.2, "end": 1.8,
+                                  "text": "everyone agreed on the budget proposal",
+                                  "avg_logprob": -0.3, "compression_ratio": 1.2}],
+                    "text": "everyone agreed on the budget proposal"}
+
+        out, stats = ta.second_pass(result, audio, [(0.0, 12.0)], fake_transcribe, None)
+        self.assertEqual(stats["gaps_recovered"], 1)
+        self.assertEqual(len(out["segments"]), 3)
