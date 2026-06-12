@@ -356,6 +356,119 @@ class DetectSpeechRegionsTests(unittest.TestCase):
         self.assertAlmostEqual(regions[0][1], 11.0, delta=0.05)
 
 
+class DetectPausesTests(unittest.TestCase):
+    """Fine-grained pause detection: the short gaps region-VAD merges over."""
+
+    SR = 16000
+
+    def _audio(self, *sections):
+        import numpy as np
+
+        parts = []
+        for seconds, amp in sections:
+            n = int(seconds * self.SR)
+            if amp:
+                t = np.arange(n)
+                parts.append((amp * np.sin(2 * np.pi * 440 * t / self.SR)).astype(np.float32))
+            else:
+                parts.append(np.zeros(n, dtype=np.float32))
+        return np.concatenate(parts)
+
+    def test_continuous_speech_has_no_pauses(self):
+        self.assertEqual(ta.detect_pauses(self._audio((10, 0.1)), self.SR), [])
+
+    def test_short_pause_is_reported_even_though_region_vad_merges_it(self):
+        # a 1s gap: too short to split a speech region (needs >=2s) but a valid
+        # cut point — detect_pauses must surface it where detect_speech_regions won't
+        audio = self._audio((5, 0.1), (1, 0.0), (5, 0.1))
+        self.assertEqual(len(ta.detect_speech_regions(audio, self.SR)), 1)
+        pauses = ta.detect_pauses(audio, self.SR)
+        self.assertEqual(len(pauses), 1)
+        self.assertAlmostEqual(pauses[0], 5.5, delta=0.1)  # centered in the gap
+
+    def test_pause_below_threshold_is_ignored(self):
+        # 0.2s gap < default 0.35s min_pause -> not a cut point
+        audio = self._audio((5, 0.1), (0.2, 0.0), (5, 0.1))
+        self.assertEqual(ta.detect_pauses(audio, self.SR), [])
+
+    def test_pure_silence_yields_no_pauses(self):
+        self.assertEqual(ta.detect_pauses(self._audio((5, 0.0)), self.SR), [])
+
+
+class NearestPauseTests(unittest.TestCase):
+    def test_picks_closest_within_window(self):
+        self.assertEqual(ta._nearest_pause([1.0, 4.0, 9.0], 5.0, 2.0), 4.0)
+
+    def test_returns_none_when_all_outside_window(self):
+        self.assertIsNone(ta._nearest_pause([1.0, 9.0], 5.0, 2.0))
+
+    def test_empty_pause_list(self):
+        self.assertIsNone(ta._nearest_pause([], 5.0, 2.0))
+
+
+class SnapBoundariesTests(unittest.TestCase):
+    def test_interior_cut_moves_to_nearby_pause(self):
+        chunks = [(0.0, 50.0), (50.0, 100.0)]
+        # a pause at 47s, within 0.5*nominal(50)=25s of the 50s cut
+        snapped = ta.snap_boundaries(chunks, [47.0])
+        self.assertEqual(snapped, [(0.0, 47.0), (47.0, 100.0)])
+
+    def test_outer_endpoints_never_move(self):
+        chunks = [(10.0, 60.0), (60.0, 110.0)]
+        # a pause near the region START must not pull the outer edge in
+        snapped = ta.snap_boundaries(chunks, [11.0, 58.0])
+        self.assertEqual(snapped[0][0], 10.0)
+        self.assertEqual(snapped[-1][1], 110.0)
+        self.assertEqual(snapped[0][1], 58.0)  # only the interior cut moved
+
+    def test_no_pause_in_window_leaves_cut_in_place(self):
+        chunks = [(0.0, 50.0), (50.0, 100.0)]
+        # nearest pause is 30s away (> 0.5*50) -> unchanged
+        self.assertEqual(ta.snap_boundaries(chunks, [20.0]), chunks)
+
+    def test_single_chunk_or_no_pauses_is_noop(self):
+        self.assertEqual(ta.snap_boundaries([(0.0, 50.0)], [25.0]), [(0.0, 50.0)])
+        self.assertEqual(ta.snap_boundaries([(0.0, 50.0), (50.0, 100.0)], []),
+                         [(0.0, 50.0), (50.0, 100.0)])
+
+    def test_boundaries_stay_strictly_increasing_and_contiguous(self):
+        chunks = [(0.0, 30.0), (30.0, 60.0), (60.0, 90.0)]
+        # two pauses that could collide near each other
+        snapped = ta.snap_boundaries(chunks, [29.0, 31.0, 58.0])
+        starts_ends = [s for s, _ in snapped] + [snapped[-1][1]]
+        self.assertTrue(all(a < b for a, b in zip(starts_ends, starts_ends[1:])))
+        # contiguous: each chunk's end == next chunk's start
+        for (_, end), (nxt, _) in zip(snapped, snapped[1:]):
+            self.assertEqual(end, nxt)
+        self.assertEqual(len(snapped), 3)  # chunk count preserved
+
+
+class PlanChunksOverRegionsSnapTests(unittest.TestCase):
+    def test_pauses_snap_interior_cuts(self):
+        # one 600s region, target 3 -> ideal cuts at 200 and 400
+        chunks = ta.plan_chunks_over_regions(
+            [(0.0, 600.0)], target_chunks=3, floor_seconds=120.0,
+            pauses=[195.0, 410.0],
+        )
+        self.assertEqual(chunks, [(0.0, 195.0), (195.0, 410.0), (410.0, 600.0)])
+
+    def test_no_pauses_matches_unsnapped_plan(self):
+        regions = [(0.0, 600.0)]
+        self.assertEqual(
+            ta.plan_chunks_over_regions(regions, 3, 120.0, pauses=None),
+            ta.plan_chunks_over_regions(regions, 3, 120.0),
+        )
+
+
+class SnapBoundariesDefaultTests(unittest.TestCase):
+    def test_snap_boundaries_is_on_by_default(self):
+        self.assertTrue(ta.build_parser().parse_args(["a.mp3"]).snap_boundaries)
+
+    def test_no_snap_boundaries_opts_out(self):
+        args = ta.build_parser().parse_args(["a.mp3", "--no-snap-boundaries"])
+        self.assertFalse(args.snap_boundaries)
+
+
 class WorthSkippingTests(unittest.TestCase):
     """Silence skipping engages only when it saves real time."""
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import contextlib
 import importlib
 import importlib.util
@@ -187,6 +188,29 @@ def plan_chunks(duration, target_chunks=DEFAULT_CHECKPOINT_CHUNKS, floor_seconds
     return [(i * size, duration if i == n - 1 else (i + 1) * size) for i in range(n)]
 
 
+def _speech_frame_mask(audio, sample_rate=SAMPLE_RATE, frame_seconds=0.03):
+    """RMS energy per frame -> (boolean speech mask, frame length s, duration s).
+
+    The threshold sits 30 dB under the loud (95th-percentile) frames with an
+    absolute floor, so a noisy-but-quiet recording degrades to "everything is
+    speech" rather than to dropped words. ``mask`` is ``None`` when the clip is
+    shorter than a single frame. Shared by ``detect_speech_regions`` (which
+    cares about long gaps) and ``detect_pauses`` (which cares about short ones).
+    """
+    np = importlib.import_module("numpy")
+    audio = np.asarray(audio, dtype=np.float32)
+    duration = len(audio) / sample_rate
+    frame = max(1, int(frame_seconds * sample_rate))
+    n_frames = len(audio) // frame
+    frame_s = frame / sample_rate
+    if n_frames == 0:
+        return None, frame_s, duration
+    frames = audio[: n_frames * frame].reshape(n_frames, frame).astype(np.float64)
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    threshold = max(1e-4, float(np.percentile(rms, 95)) * 10 ** (-30 / 20))
+    return rms >= threshold, frame_s, duration
+
+
 def detect_speech_regions(audio, sample_rate=SAMPLE_RATE, frame_seconds=0.03,
                           min_silence_seconds=2.0, pad_seconds=0.3):
     """Find (start, end) speech regions in seconds using frame RMS energy.
@@ -197,18 +221,9 @@ def detect_speech_regions(audio, sample_rate=SAMPLE_RATE, frame_seconds=0.03,
     noisy-but-quiet recording degrades to "everything is speech" rather than
     to dropped words. Returns [] when no frame rises above the threshold.
     """
-    np = importlib.import_module("numpy")
-    audio = np.asarray(audio, dtype=np.float32)
-    duration = len(audio) / sample_rate
-    frame = max(1, int(frame_seconds * sample_rate))
-    n_frames = len(audio) // frame
-    if n_frames == 0:
+    speech, frame_s, duration = _speech_frame_mask(audio, sample_rate, frame_seconds)
+    if speech is None:
         return [(0.0, duration)] if duration > 0 else []
-    frame_s = frame / sample_rate
-    frames = audio[: n_frames * frame].reshape(n_frames, frame).astype(np.float64)
-    rms = np.sqrt(np.mean(frames ** 2, axis=1))
-    threshold = max(1e-4, float(np.percentile(rms, 95)) * 10 ** (-30 / 20))
-    speech = rms >= threshold
     if not speech.any():
         return []
 
@@ -234,6 +249,78 @@ def detect_speech_regions(audio, sample_rate=SAMPLE_RATE, frame_seconds=0.03,
     ]
 
 
+def detect_pauses(audio, sample_rate=SAMPLE_RATE, frame_seconds=0.03,
+                  min_pause_seconds=0.35):
+    """Center time (s) of every interior silence run >= ``min_pause_seconds``.
+
+    These are the quiet spots — sentence and breath gaps — a chunk boundary can
+    land in without splitting a word. Uses the same energy threshold as
+    ``detect_speech_regions`` but reports the short pauses that function merges
+    over (it only splits on >= 2 s gaps). Leading silence is reported (harmless,
+    far from interior cuts); a trailing run to EOF is not, since it makes no
+    useful interior boundary. Returns [] for silence or sub-frame clips.
+    """
+    speech, frame_s, _duration = _speech_frame_mask(audio, sample_rate, frame_seconds)
+    if speech is None or not speech.any():
+        return []
+    pauses = []
+    start = None
+    for index, is_speech in enumerate(speech):
+        if not is_speech and start is None:
+            start = index
+        elif is_speech and start is not None:
+            if (index - start) * frame_s >= min_pause_seconds:
+                pauses.append((start + index) / 2 * frame_s)
+            start = None
+    return pauses
+
+
+def _nearest_pause(sorted_pauses, target, max_distance):
+    """Nearest value in ``sorted_pauses`` within ``max_distance`` of ``target``,
+    or ``None`` if the closest pause is farther than the window allows."""
+    pos = bisect.bisect_left(sorted_pauses, target)
+    best, best_distance = None, max_distance
+    for j in (pos - 1, pos):
+        if 0 <= j < len(sorted_pauses):
+            distance = abs(sorted_pauses[j] - target)
+            if distance <= best_distance:
+                best, best_distance = sorted_pauses[j], distance
+    return best
+
+
+def snap_boundaries(chunks, pauses, max_shift_fraction=0.5):
+    """Move each interior chunk boundary onto the nearest detected pause.
+
+    ``chunks`` is a contiguous (start, end) list within ONE region. Each interior
+    cut is pulled to the nearest pause within ``max_shift_fraction`` of the
+    nominal chunk length, so the cut falls in silence instead of mid-word; a cut
+    with no pause in range is left where it was. The region's outer start/end are
+    never moved and boundaries stay strictly increasing (a snap never crosses a
+    neighbour), so chunk count and coverage are preserved.
+    """
+    if len(chunks) < 2 or not pauses:
+        return chunks
+    pauses = sorted(pauses)
+    region_start, region_end = chunks[0][0], chunks[-1][1]
+    interior = [start for start, _ in chunks[1:]]  # cut points = each chunk's start after the first
+    nominal = (region_end - region_start) / len(chunks)
+    max_shift = max_shift_fraction * nominal
+
+    points = [region_start]
+    prev = region_start
+    for index, boundary in enumerate(interior):
+        next_ideal = interior[index + 1] if index + 1 < len(interior) else region_end
+        candidate = _nearest_pause(pauses, boundary, max_shift)
+        if candidate is not None and prev < candidate < next_ideal:
+            boundary = candidate
+        if boundary <= prev:  # safety: never invert or collapse a chunk to zero
+            boundary = interior[index]
+        points.append(boundary)
+        prev = boundary
+    points.append(region_end)
+    return [(points[i], points[i + 1]) for i in range(len(points) - 1)]
+
+
 def worth_skipping(kept_seconds, duration_seconds, min_save_seconds=10.0,
                    min_save_fraction=0.2):
     """Whether trimming silence saves enough time to justify moving chunk
@@ -243,18 +330,26 @@ def worth_skipping(kept_seconds, duration_seconds, min_save_seconds=10.0,
 
 
 def plan_chunks_over_regions(regions, target_chunks=DEFAULT_CHECKPOINT_CHUNKS,
-                             floor_seconds=DEFAULT_CHECKPOINT_MIN_SECONDS):
+                             floor_seconds=DEFAULT_CHECKPOINT_MIN_SECONDS,
+                             pauses=None):
     """Apportion ``target_chunks`` across speech regions, then chunk each region.
 
     Returns (start, end) chunks in original-timeline seconds; the gaps between
     regions are simply absent from the plan, so silence is never transcribed.
+    When ``pauses`` (from ``detect_pauses``) is given, each region's interior
+    cuts are snapped onto the nearest pause so boundaries fall in silence.
     """
     total = sum(end - start for start, end in regions)
     chunks = []
     for start, end in regions:
         share = max(1, round(target_chunks * (end - start) / total)) if total > 0 else 1
-        for chunk_start, chunk_end in plan_chunks(end - start, share, floor_seconds):
-            chunks.append((start + chunk_start, start + chunk_end))
+        region_chunks = [
+            (start + chunk_start, start + chunk_end)
+            for chunk_start, chunk_end in plan_chunks(end - start, share, floor_seconds)
+        ]
+        if pauses:
+            region_chunks = snap_boundaries(region_chunks, pauses)
+        chunks.extend(region_chunks)
     return chunks
 
 
@@ -609,6 +704,14 @@ def build_parser() -> argparse.ArgumentParser:
         "meaningful time). Timestamps keep the original timeline. "
         "Disable with --no-skip-silence.",
     )
+    parser.add_argument(
+        "--snap-boundaries",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Snap each chunk boundary to the nearest detected speech pause so "
+        "cuts land in silence instead of mid-word (on by default; a no-op when a "
+        "boundary already sits in a quiet spot). Disable with --no-snap-boundaries.",
+    )
     parser.add_argument("--check", action="store_true", help="Check local dependencies and print install hints.")
     return parser
 
@@ -657,11 +760,21 @@ def main() -> None:
                         file=sys.stderr,
                     )
             trimmed = regions != [(0.0, duration)]
+            pauses = detect_pauses(audio) if args.snap_boundaries else None
             chunks = plan_chunks_over_regions(
                 regions,
                 args.checkpoint_chunks,
                 args.checkpoint_min_seconds,
+                pauses=pauses,
             )
+            if pauses and chunks != plan_chunks_over_regions(
+                regions, args.checkpoint_chunks, args.checkpoint_min_seconds
+            ):
+                print(
+                    f"Boundary snap: cut points moved onto detected pauses "
+                    f"({len(pauses)} pauses found).",
+                    file=sys.stderr,
+                )
 
         if len(chunks) > 1 or trimmed:
             device = None if backend == "mlx" else choose_device(args.device)

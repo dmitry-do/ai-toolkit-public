@@ -96,6 +96,15 @@ The script detects speech regions by energy and skips silences longer than ~2s (
 - The threshold is conservative (30 dB under the loud parts, 0.3s padding, only >2s silences) — a quiet speaker 25 dB below the rest of the room is fully retained.
 - Pass `--no-skip-silence` to opt out, e.g. for music with long genuinely-quiet passages where even faint content matters.
 
+### Boundary snapping (on by default)
+
+Chunk boundaries are snapped to the nearest detected speech pause (`--snap-boundaries`, default on), so a cut lands in silence instead of mid-word. A word split across a hard cut gets mis-transcribed on both sides; landing the cut in a pause avoids that. It self-gates — if a boundary already sits in a quiet spot, or no pause is nearby, the cut stays put (measured mean shift ~1s on continuous narration).
+
+- The win grows as chunks shrink toward Whisper's 30s window. At ~34s chunks, equal-spaced cuts degrade badly (turbo 5.1%, large-v3 **8.8%** WER) while snapped cuts hold (turbo 4.3%, large-v3 **3.7%**). At the default chunk size it's a small, consistent improvement (4.3% → 4.0%).
+- It composes with silence skipping: pauses are snapped *within* each speech region, so skipped silence and clean cuts stack.
+- Chunk count and coverage are preserved (boundaries never cross a neighbour or move the region's outer edges), so resume and checkpointing are unaffected.
+- Pass `--no-snap-boundaries` to use exact evenly-spaced cuts instead.
+
 ### Resuming after a failure (automatic)
 
 During a chunked run the script also writes a small sidecar, `<output>.progress.json`, after every chunk (deleted automatically on success). If a chunk fails or the run is interrupted (crash, `Ctrl-C`, machine sleep), simply **re-run the same command** — the script detects the sidecar and resumes from the last completed chunk automatically; no flag needed.

@@ -116,6 +116,56 @@ the silent fraction and with slower models. Conservative by construction: a quie
 under the loud one is fully retained. Opt out with `--no-skip-silence` (e.g. music with long
 genuinely-quiet passages).
 
+## Boundary snapping: snap cuts to detected pauses (2026-06-11)
+
+Was on the shelf below; now built and measured. Each interior chunk boundary is pulled to
+the nearest `detect_pauses` center within ±0.5× the nominal chunk length, so cuts land in
+silence instead of mid-word (`--snap-boundaries`, **default ON**; opt out with
+`--no-snap-boundaries`). The aligned 823s narration has **249 detectable pauses** (sentence/
+breath gaps ~every 3s), so a boundary almost always finds one nearby — measured mean shift
+**~1.0s**, max 3.7s, and chunk count/coverage are preserved (snaps never cross a neighbor or
+move a region's outer edges). All runs `--language en`, deterministic (greedy), so the deltas
+are real, not sampling noise. Chunk count forced via `--checkpoint-min-seconds 1`.
+
+| model | chunks n | chunk len | snap | wall_s | WER% | CER% | hyp words | notes |
+|-------|---------:|----------:|------|-------:|-----:|-----:|----------:|-------|
+| turbo | 6 (default) | 137s | off | 34 | 4.3 | 1.6 | 2154 | |
+| turbo | 6 (default) | 137s | **on** | 35 | **4.0** | 1.7 | 2147 | small win even at safe size |
+| turbo | 16 | 51s | off | 32 | 4.6 | 1.9 | 2157 | |
+| turbo | 16 | 51s | **on** | 34 | **4.3** | 1.9 | 2151 | |
+| turbo | 24 | 34s | off | 42 | 5.1 | 2.0 | 2158 | equal cuts near the 30s window slip |
+| turbo | 24 | 34s | **on** | 41 | **4.3** | 1.6 | 2149 | snapped cuts hold |
+| large-v3 | 24 | 34s | off | 99 | **8.8** | 4.6 | 2244 | **cliff returns** — +83 boundary-garbage words |
+| large-v3 | 24 | 34s | **on** | 91 | **3.7** | 1.7 | 2151 | cliff eliminated; beats its own single-shot (4.0) |
+
+Composition with silence-skip (turbo defaults; both fixtures from the 2161-word reference):
+
+| fixture | snap | wall_s | WER% | CER% | notes |
+|---------|------|-------:|-----:|-----:|-------|
+| silence-heavy (1123s, 27% silence) | off | 34 | 4.3 | 1.8 | |
+| silence-heavy | **on** | 34 | **4.0** | 1.7 | snaps *within* regions; stacks with skip-silence |
+| quiet-speaker (−25 dB 2nd half) | off | 33 | 4.7 | 1.9 | |
+| quiet-speaker | **on** | 34 | **4.3** | 1.7 | |
+
+### Findings
+
+- **Snapping never hurt in any tested config, and the win grows as chunks shrink.** At the
+  default 137s chunks it's a small, consistent improvement (4.3 → 4.0); at 51s it's 4.6 → 4.3;
+  at 34s (near Whisper's 30s window) it's a save: turbo 5.1 → 4.3, **large-v3 8.8 → 3.7**.
+- **The boundary "cliff" is not fully gone post-carry-removal — it just moved smaller.** The
+  earlier section showed n=16 (51s) recovered to ~4.6–4.7% once the prompt carry was removed.
+  But push chunks down to ~34s and large-v3 degrades again to **8.8%** with *equal* cuts (hyp
+  inflates 2161 → 2244: a word split at the cut is emitted on both sides). Snapping the cut into
+  a pause removes the split entirely (8.8 → 3.7, hyp back to 2151). So: carry-removal raised the
+  safe floor, **snapping lowers it further** — sub-50s chunks are now safe too.
+- **Self-gating and cheap.** Continuous narration offers a pause within ~1s of nearly every
+  ideal cut, so chunks stay even (29.6–37.4s at n=24 vs a flat 34.3s) and wall time is unchanged.
+  It composes with silence-skip (pauses snapped inside each region) with no regression.
+- **Unlocks a lower checkpoint floor (future lever).** The `--checkpoint-min-seconds 120` floor
+  exists because equal cuts below it were unsafe. With snapping default-on, that rationale weakens
+  — a smaller floor would give more frequent on-disk checkpoints at the same accuracy. Not changed
+  here (needs its own checkpoint-frequency sweep), but the door is now open.
+
 ## Historical context — the conditioning-ON loop (superseded)
 
 These runs used `condition_on_previous_text=True` (the old default) and are kept to document why
@@ -138,5 +188,8 @@ highly chunk-boundary-sensitive. Disabling it (now the default) eliminated them.
   `--mlx-model mlx-community/whisper-large-v3-mlx`. Chunk default (target 10, floor 120s) is in the safe zone.
 - **Done:** VAD / silence-skip (`--skip-silence`, default ON) + cross-chunk prompt carry removed —
   see the 2026-06-11 section above.
-- Parallel chunks unlikely to help — single shared MLX GPU. Possible future lever: snap chunk
-  boundaries to detected pauses (VAD already finds them) for even cleaner cuts.
+- **Done:** snap chunk boundaries to detected pauses (`--snap-boundaries`, default ON) — never hurt,
+  big win at small chunks (large-v3 34s: 8.8 → 3.7%). See the boundary-snapping section above.
+- Parallel chunks unlikely to help — single shared MLX GPU. Open lever: with snapping making small
+  chunks safe, lower the `--checkpoint-min-seconds 120` floor for more frequent checkpoints (needs a
+  checkpoint-frequency sweep).
