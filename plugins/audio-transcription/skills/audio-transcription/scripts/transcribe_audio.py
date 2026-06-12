@@ -28,7 +28,7 @@ DEFAULT_LOCK_DIR = Path("/tmp/audio-transcription-locks")
 SUPPORTED_AUDIO_SUFFIXES = (".wav", ".mp3", ".m4a")
 SAMPLE_RATE = 16000
 DEFAULT_CHECKPOINT_CHUNKS = 10
-DEFAULT_CHECKPOINT_MIN_SECONDS = 120.0
+DEFAULT_CHECKPOINT_MIN_SECONDS = 45.0
 
 
 def fail(message: str, code: int = 1) -> None:

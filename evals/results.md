@@ -161,10 +161,56 @@ Composition with silence-skip (turbo defaults; both fixtures from the 2161-word 
 - **Self-gating and cheap.** Continuous narration offers a pause within ~1s of nearly every
   ideal cut, so chunks stay even (29.6–37.4s at n=24 vs a flat 34.3s) and wall time is unchanged.
   It composes with silence-skip (pauses snapped inside each region) with no regression.
-- **Unlocks a lower checkpoint floor (future lever).** The `--checkpoint-min-seconds 120` floor
-  exists because equal cuts below it were unsafe. With snapping default-on, that rationale weakens
-  — a smaller floor would give more frequent on-disk checkpoints at the same accuracy. Not changed
-  here (needs its own checkpoint-frequency sweep), but the door is now open.
+- **Unlocks a lower checkpoint floor.** The `--checkpoint-min-seconds 120` floor existed because
+  equal cuts below it were unsafe. With snapping default-on that rationale weakens — see the
+  checkpoint-frequency sweep below, which confirms the floor can drop to ~45s at the same accuracy.
+
+## Checkpoint-frequency sweep: how low can the floor go? (2026-06-12)
+
+The `--checkpoint-min-seconds` floor caps how *often* a chunked run writes its incremental
+on-disk checkpoint (smaller floor ⇒ more chunks ⇒ more frequent crash-safety saves). It was
+pinned at 120s because pre-snapping, sub-~50s cuts deleted audio. Now that snapping is default-on,
+this sweep lowers the floor with the **shipped defaults** (snap on, skip-silence on) and forces
+the floor to bind via `--checkpoint-chunks 500`. Aligned 823s audio, `--language en`, deterministic.
+
+| model | floor | chunks n | chunk len | wall_s | WER% | CER% | hyp words | notes |
+|-------|------:|---------:|----------:|-------:|-----:|-----:|----------:|-------|
+| large-v3 | 120 | 6 | 137s | 85 | 3.6 | 1.6 | 2147 | current default behaviour |
+| large-v3 | 60 | 13 | 63s | 85 | 4.1 | 1.9 | 2144 | |
+| large-v3 | 40 | 20 | 41s | 90 | 4.1 | 1.9 | 2150 | |
+| large-v3 | 30 | 27 | 30s | 85 | 3.9 | 2.0 | 2148 | safe — at Whisper's 30s window |
+| large-v3 | 20 | 41 | 20s | 84 | 3.9 | 2.1 | 2151 | still flat |
+| large-v3 | 10 | 82 | 10s | 118 | **4.6** | 2.7 | 2162 | slips; wall +40% (per-chunk overhead) |
+| large-v3 | 30 *(no-snap)* | 27 | 30s | 97 | 4.3 | 2.0 | 2156 | snap-off control |
+| large-v3 | 10 *(no-snap)* | 82 | 10s | 121 | **7.4** | 4.7 | 2211 | snap-off cliff — word-splitting at cuts |
+| turbo | 120 | 6 | 137s | 34 | 4.0 | 1.7 | 2147 | |
+| turbo | 30 | 27 | 30s | 39 | 4.3 | 2.0 | 2160 | |
+| turbo | 10 | 82 | 10s | 61 | 4.0 | 1.9 | 2145 | turbo unfazed even at 10s |
+
+### Findings
+
+- **The floor can drop from 120s to ~30s at no cost.** large-v3 WER stays in the run-to-run noise
+  band (3.6–4.1%) from 137s chunks all the way down to **20s chunks**, and wall time is flat
+  (~84–90s). That's 4–5× more frequent checkpoints (27 chunks vs 6) for free.
+- **The wall stops being free below ~20s.** At 10s chunks per-chunk model overhead dominates:
+  large-v3 wall jumps 85→118s, turbo 34→61s — and large-v3 accuracy finally slips to 4.6% (CER 2.7).
+- **large-v3 is the binding model; turbo is unfazed.** Turbo holds 4.0–4.3% at every floor including
+  10s (it was always the more boundary-robust model). So any floor decision should protect large-v3.
+- **Snapping is what makes small chunks safe.** Turn it off and 10s chunks collapse to 7.4% WER
+  (hyp inflates 2162→2211 — the same word-split-at-the-cut signature as the old 34s cliff); 30s
+  chunks regress 3.9→4.3. The default-on snap is load-bearing for any sub-50s floor.
+- **New floor: 45s** (shipped). Keeps chunks comfortably above Whisper's 30s internal window even
+  on real-world audio with sparse pauses (where snapping can't always find a cut point), at zero
+  measured accuracy/speed cost. 30s is the aggressive option (clean here, but rides right on the
+  30s window); 10s is off the table.
+- **What the floor actually changes (target-chunks interaction).** A default run takes
+  `n = min(--checkpoint-chunks=10, duration // floor)`, so the floor only *binds* when
+  `duration < 10 × floor` — i.e. for audio **under ~20 min** (was 120s ⇒ <20min; now 45s ⇒ <7.5min
+  before you drop below 10 chunks). Effect of 120→45 on default runs: long audio (≥20 min) is
+  **unchanged** (target-10 caps it either way); short-to-medium audio gets more checkpoints — 13.7-min
+  fixture 6→10, 10-min 5→10, 5-min 2→6 — and the **smallest chunk any default run emits drops from
+  120s to 45s**, which is exactly the size this sweep validates as accuracy-neutral. Verified: a
+  no-flag default run on the fixture now plans 10×82s chunks and scores 3.8% WER (turbo).
 
 ## Historical context — the conditioning-ON loop (superseded)
 
@@ -190,6 +236,8 @@ highly chunk-boundary-sensitive. Disabling it (now the default) eliminated them.
   see the 2026-06-11 section above.
 - **Done:** snap chunk boundaries to detected pauses (`--snap-boundaries`, default ON) — never hurt,
   big win at small chunks (large-v3 34s: 8.8 → 3.7%). See the boundary-snapping section above.
-- Parallel chunks unlikely to help — single shared MLX GPU. Open lever: with snapping making small
-  chunks safe, lower the `--checkpoint-min-seconds 120` floor for more frequent checkpoints (needs a
-  checkpoint-frequency sweep).
+- **Done:** checkpoint-frequency sweep (2026-06-12, section above) — with snapping default-on the
+  `--checkpoint-min-seconds` floor drops from 120s to **45s** at the same accuracy and wall time.
+  More frequent checkpoints for sub-20-min audio (e.g. 13.7-min fixture 6→10 chunks); long audio
+  unchanged. **Shipped: `DEFAULT_CHECKPOINT_MIN_SECONDS = 45.0`.**
+- Parallel chunks unlikely to help — single shared MLX GPU. No open levers remain.

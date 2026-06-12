@@ -81,10 +81,10 @@ For batch transcription, loop over discovered audio files and skip existing `.md
 
 ### Incremental output
 
-By default the script transcribes long audio in chunks and rewrites the Markdown after each chunk (atomic temp-file + rename), so an interrupted run still leaves a partial transcript on disk. Chunking targets ~10 checkpoints but never makes a chunk shorter than 120s, so short clips stay a single chunk.
+By default the script transcribes long audio in chunks and rewrites the Markdown after each chunk (atomic temp-file + rename), so an interrupted run still leaves a partial transcript on disk. Chunking targets ~10 checkpoints but never makes a chunk shorter than 45s, so short clips stay a single chunk.
 
 - `--checkpoint-chunks N` — target number of checkpoints (default 10). `--checkpoint-chunks 1` disables chunking (single-shot, original behavior).
-- `--checkpoint-min-seconds S` — minimum chunk length (default 120). Keep chunks well above Whisper's internal 30s window; the 120s floor is measured to be accuracy-neutral.
+- `--checkpoint-min-seconds S` — minimum chunk length (default 45). Boundary snapping (default-on) lands cuts in pauses, so chunks this small stay accuracy-neutral while giving more frequent crash-safety checkpoints; it keeps cuts above Whisper's 30s internal window. Measured: floor 45 ≈ floor 120 on WER and speed (sweep in `evals/results.md`); going below ~20s starts to cost accuracy and wall time.
 - Each chunk is transcribed with only the user's `--prompt` — the previous chunk's text is deliberately **not** carried across the boundary (carrying it conditions the decoder across chunks and can make Whisper silently drop the start of a chunk; measured at ~75 words lost).
 
 ### Silence skipping (on by default)
