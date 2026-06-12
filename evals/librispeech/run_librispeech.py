@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import shutil
 import subprocess
 import sys
 import time
@@ -158,6 +159,7 @@ def build_hf_dummy_fixture(work_dir):
         check=True,
     )
     concat_list.unlink()
+    shutil.rmtree(utt_dir)
     ref_path.write_text(" ".join(ref_parts) + "\n", encoding="utf-8")
     return wav_path, ref_path
 
