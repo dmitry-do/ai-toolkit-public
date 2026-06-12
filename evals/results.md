@@ -212,6 +212,44 @@ the floor to bind via `--checkpoint-chunks 500`. Aligned 823s audio, `--language
   120s to 45s**, which is exactly the size this sweep validates as accuracy-neutral. Verified: a
   no-flag default run on the fixture now plans 10×82s chunks and scores 3.8% WER (turbo).
 
+## Second pass + accuracy-first default (2026-06-12)
+
+Two changes shipped together on the `feature/accuracy-defaults` work (see
+`evals/librispeech/results.md` for the LibriSpeech side and
+`an internal design doc` for the design):
+
+**Second pass (`--second-pass`, default ON).** After the main transcription the
+script audits the result against the audio (erm-inspired: Whisper fails by
+leaving a hole, not an error token) and repairs locally: re-transcribes voiced
+spans no segment covers, drops suspect segments whose span other segments
+already cover (spurious overlays), and retries sole-coverage suspects in
+isolation. War & Peace aligned 823s, `--language en`, deterministic:
+
+| model | second pass | wall_s | WER% | CER% | notes |
+|-------|------------|-------:|-----:|-----:|-------|
+| turbo | off | 35 | 3.8 | 1.5 | |
+| turbo | on | 35 | 3.8 | 1.5 | self-gates to a no-op on a clean result |
+| large-v3 | off | 88 | 3.5 | 1.5 | |
+| large-v3 | on | 90 | **3.4** | 1.4 | best W&P result to date |
+
+The first implementation **failed hard on noisy speech** (LibriSpeech
+test-other: large-v3 4.44 → 24.98% WER) and the failure was instructive:
+Whisper emits *overlapping* spurious segments — a 30s "Thank you." on top of
+the real segments at a chunk head — and re-transcribing a suspect's span when
+its audio is already covered just duplicates the real text (+379 inserted
+words on one fixture). The fix makes the pass reason about **audio coverage,
+not segment spans** (drop covered overlays; recover the hole left by stacked
+overlays; discard recovered text the neighbours already carry). Post-fix it is
+equal-or-better everywhere: test-other large-v3 4.44 → 4.17, turbo 4.05 → 4.02,
+W&P large-v3 3.5 → 3.4, clean unchanged, wall +0–4%.
+
+**Default model = large-v3 (accuracy-first).** Cross-fixture micro-average
+(LibriSpeech clean 1948w + other 2590w + W&P 2161w, second pass on):
+large-v3 **3.17%** vs turbo 3.33% weighted WER — large-v3 wins clean (1.59 vs
+1.90) and W&P (3.4 vs 3.8), ties test-other (4.17 vs 4.02) — at ~2.3× wall,
+still ~10× realtime. `DEFAULT_MLX_MODEL` is now
+`mlx-community/whisper-large-v3-mlx`; turbo is the documented speed opt-in.
+
 ## Historical context — the conditioning-ON loop (superseded)
 
 These runs used `condition_on_previous_text=True` (the old default) and are kept to document why
@@ -229,9 +267,9 @@ highly chunk-boundary-sensitive. Disabling it (now the default) eliminated them.
 ## Next levers
 
 - **Done:** `condition_on_previous_text=False` is the default (opt back in via `--condition-previous`).
-- **Default model = turbo (speed).** Turbo (~4.8% WER, ~35s) is the default; large-v3 (~3.9% WER) is
-  only ~0.9 pt more accurate for ~2.5× the time, so it's an opt-in for precision-critical jobs via
-  `--mlx-model mlx-community/whisper-large-v3-mlx`. Chunk default (target 10, floor 120s) is in the safe zone.
+- **Done (superseded 2026-06-12):** the default was turbo for speed; it is now
+  **large-v3 (accuracy-first)** — see the second-pass section above. Turbo stays the speed opt-in
+  via `--mlx-model mlx-community/whisper-large-v3-turbo` (~2.3× faster, slightly less accurate).
 - **Done:** VAD / silence-skip (`--skip-silence`, default ON) + cross-chunk prompt carry removed —
   see the 2026-06-11 section above.
 - **Done:** snap chunk boundaries to detected pauses (`--snap-boundaries`, default ON) — never hurt,
@@ -240,4 +278,8 @@ highly chunk-boundary-sensitive. Disabling it (now the default) eliminated them.
   `--checkpoint-min-seconds` floor drops from 120s to **45s** at the same accuracy and wall time.
   More frequent checkpoints for sub-20-min audio (e.g. 13.7-min fixture 6→10 chunks); long audio
   unchanged. **Shipped: `DEFAULT_CHECKPOINT_MIN_SECONDS = 45.0`.**
-- Parallel chunks unlikely to help — single shared MLX GPU. No open levers remain.
+- **Done:** second-pass audit (`--second-pass`, default ON) + LibriSpeech eval harness
+  (`evals/librispeech/`) — see the 2026-06-12 section above.
+- **Done:** faster-whisper backend (`--backend faster`, explicit opt-in) — beam-search decoding,
+  CPU-only on Apple Silicon; measured in `evals/librispeech/results.md`.
+- Parallel chunks unlikely to help — single shared MLX GPU.
