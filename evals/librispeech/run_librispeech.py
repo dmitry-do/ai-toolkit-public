@@ -120,31 +120,44 @@ def build_chapter_fixture(chapter_dir, work_dir, cap_seconds=480.0):
 
 
 def build_hf_dummy_fixture(work_dir):
-    """One concatenated wav + reference from the HF librispeech_asr_dummy split."""
+    """One concatenated wav + reference from the HF librispeech_asr_dummy split.
+
+    Audio is taken as raw flac bytes (``decode=False``) and concatenated with
+    ffmpeg — datasets' own decoder (torchcodec) doesn't load on macOS system
+    Python, and ffmpeg is required by the plugin anyway."""
     wav_path = work_dir / "hf-dummy.wav"
     ref_path = work_dir / "hf-dummy.ref.txt"
     if wav_path.exists() and ref_path.exists():
         return wav_path, ref_path
 
-    from datasets import load_dataset  # one-line loader, as advertised
-    import numpy as np
+    from datasets import Audio, load_dataset  # one-line loader, as advertised
 
     dataset = load_dataset(HF_DUMMY, "clean", split="validation")
-    arrays, ref_parts = [], []
-    for row in dataset:
-        audio = row["audio"]
-        if int(audio["sampling_rate"]) != SAMPLE_RATE:
-            raise SystemExit(f"unexpected sampling rate: {audio['sampling_rate']}")
-        arrays.append(np.asarray(audio["array"], dtype=np.float32))
-        ref_parts.append(row["text"])
+    dataset = dataset.cast_column("audio", Audio(decode=False))
 
     work_dir.mkdir(parents=True, exist_ok=True)
-    pcm = (np.clip(np.concatenate(arrays), -1.0, 1.0) * 32767).astype("<i2")
-    with wave.open(str(wav_path), "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(SAMPLE_RATE)
-        wav.writeframes(pcm.tobytes())
+    utt_dir = work_dir / "hf-dummy-utts"
+    utt_dir.mkdir(exist_ok=True)
+    flacs, ref_parts = [], []
+    for index, row in enumerate(dataset):
+        data = row["audio"]["bytes"]
+        if data is None:
+            data = Path(row["audio"]["path"]).read_bytes()
+        flac = utt_dir / f"{index:04d}.flac"
+        flac.write_bytes(data)
+        flacs.append(flac)
+        ref_parts.append(row["text"])
+
+    concat_list = work_dir / "hf-dummy.concat.txt"
+    concat_list.write_text(
+        "".join(f"file '{flac}'\n" for flac in flacs), encoding="utf-8"
+    )
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
+         "-i", str(concat_list), "-ar", str(SAMPLE_RATE), "-ac", "1", str(wav_path)],
+        check=True,
+    )
+    concat_list.unlink()
     ref_path.write_text(" ".join(ref_parts) + "\n", encoding="utf-8")
     return wav_path, ref_path
 
