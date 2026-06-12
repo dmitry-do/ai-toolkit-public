@@ -321,6 +321,168 @@ def snap_boundaries(chunks, pauses, max_shift_fraction=0.5):
     return [(points[i], points[i + 1]) for i in range(len(points) - 1)]
 
 
+def voiced_seconds(mask, frame_s, start, end):
+    """Seconds of voiced frames inside [start, end), given the *global* frame
+    mask from ``_speech_frame_mask``. The mask must be computed on the whole
+    audio — a slice-local threshold would overdetect on quiet slices."""
+    if mask is None:
+        return 0.0
+    lo = max(0, int(start / frame_s))
+    hi = min(len(mask), int(end / frame_s))
+    if hi <= lo:
+        return 0.0
+    return float(mask[lo:hi].sum()) * frame_s
+
+
+def find_coverage_gaps(segments, regions, min_gap_seconds=1.0):
+    """Spans inside speech ``regions`` that no segment covers — candidate
+    silent deletions. Whisper fails by leaving a hole, not an error token, so
+    the transcript alone can't reveal these; only audio coverage can. Gaps
+    between regions are intentional (skipped silence) and never reported."""
+    covered = sorted(
+        (float(s.get("start", 0.0)), float(s.get("end", 0.0))) for s in segments
+    )
+    merged = []
+    for start, end in covered:
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+
+    gaps = []
+    for region_start, region_end in regions:
+        cursor = region_start
+        for start, end in merged:
+            if end <= region_start or start >= region_end:
+                continue
+            if start - cursor >= min_gap_seconds:
+                gaps.append((cursor, min(start, region_end)))
+            cursor = max(cursor, end)
+        if region_end - cursor >= min_gap_seconds:
+            gaps.append((cursor, region_end))
+    return gaps
+
+
+def segment_suspect(seg, min_avg_logprob=-1.0, max_compression_ratio=2.4,
+                    min_chars_per_second=3.0, min_density_span_seconds=5.0):
+    """Whether a segment's own quality signals say it likely went wrong:
+    decoder unconfident (``avg_logprob``), repetitive (``compression_ratio``),
+    or far too little text for its time span (a deletion leaves a long segment
+    with sparse text). Absent fields are not evidence — fakes and other
+    backends may omit them."""
+    logprob = seg.get("avg_logprob")
+    if logprob is not None and logprob < min_avg_logprob:
+        return True
+    compression = seg.get("compression_ratio")
+    if compression is not None and compression > max_compression_ratio:
+        return True
+    duration = float(seg.get("end", 0.0)) - float(seg.get("start", 0.0))
+    text = str(seg.get("text", "")).strip()
+    if duration >= min_density_span_seconds and len(text) < min_chars_per_second * duration:
+        return True
+    return False
+
+
+def passes_quality_gates(seg):
+    """Acceptance gate for second-pass output: non-empty text, not Whisper's
+    silence signature (high no_speech + low logprob — the standard rule), not
+    a repetition loop. Missing fields pass: absence is not evidence."""
+    text = str(seg.get("text", "")).strip()
+    if not text:
+        return False
+    no_speech = seg.get("no_speech_prob")
+    logprob = seg.get("avg_logprob")
+    if (no_speech is not None and logprob is not None
+            and no_speech > 0.6 and logprob < -1.0):
+        return False
+    compression = seg.get("compression_ratio")
+    if compression is not None and compression > 2.4:
+        return False
+    return True
+
+
+def _mean_logprob(segments):
+    """Duration-weighted mean avg_logprob, or None when no segment carries one."""
+    pairs = [
+        (s["avg_logprob"], float(s.get("end", 0.0)) - float(s.get("start", 0.0)))
+        for s in segments if s.get("avg_logprob") is not None
+    ]
+    total = sum(duration for _, duration in pairs)
+    if not pairs or total <= 0:
+        return None
+    return sum(logprob * duration for logprob, duration in pairs) / total
+
+
+def second_pass(result, audio, regions, transcribe_fn, prompt,
+                min_gap_seconds=1.0, min_voiced_seconds=0.35, pad_seconds=0.2):
+    """Audit a finished transcription against the audio and repair it locally.
+
+    Two repairs, both re-using ``transcribe_fn`` on small windows (a fresh
+    slice with no surrounding context often transcribes cleanly where the
+    original pass failed):
+
+    - *Gap recovery*: uncovered spans inside speech regions that actually
+      contain voiced sound are re-transcribed and spliced in (deletions).
+    - *Suspect retry*: segments flagged by ``segment_suspect`` are re-run in
+      isolation and replaced only when the retry passes the quality gates and
+      scores a better mean logprob.
+
+    Returns ``(updated_result, stats)``; the result is returned untouched when
+    nothing was suspect. Cost scales with the amount of suspect audio — zero
+    extra model calls on a clean transcription.
+    """
+    stats = {"gaps_found": 0, "gaps_recovered": 0, "suspects": 0, "replaced": 0}
+    original_segments = list(result.get("segments") or [])
+    mask, frame_s, duration = _speech_frame_mask(audio)
+    if mask is None:
+        return result, stats
+    language = result.get("language")
+
+    def retranscribe(start, end):
+        window_start = max(0.0, start - pad_seconds)
+        window_end = min(duration, end + pad_seconds)
+        slice_audio = audio[int(window_start * SAMPLE_RATE):int(window_end * SAMPLE_RATE)]
+        retry = transcribe_fn(slice_audio, prompt, language)
+        return [
+            seg for seg in offset_segments(retry.get("segments") or [], window_start)
+            if passes_quality_gates(seg)
+        ]
+
+    out_segments = []
+    for seg in original_segments:
+        if segment_suspect(seg):
+            stats["suspects"] += 1
+            retry = retranscribe(float(seg.get("start", 0.0)), float(seg.get("end", 0.0)))
+            retry_score, original_score = _mean_logprob(retry), _mean_logprob([seg])
+            if retry and (retry_score is None or original_score is None
+                          or retry_score > original_score):
+                stats["replaced"] += 1
+                out_segments.extend(retry)
+                continue
+        out_segments.append(seg)
+
+    # Gap search uses the *original* coverage: replacements above keep the same
+    # span, and recovered segments must not mask further holes.
+    for gap_start, gap_end in find_coverage_gaps(original_segments, regions, min_gap_seconds):
+        if voiced_seconds(mask, frame_s, gap_start, gap_end) < min_voiced_seconds:
+            continue
+        stats["gaps_found"] += 1
+        recovered = retranscribe(gap_start, gap_end)
+        if recovered:
+            stats["gaps_recovered"] += 1
+            out_segments.extend(recovered)
+
+    if not (stats["suspects"] or stats["gaps_found"]):
+        return result, stats
+    out_segments.sort(key=lambda s: (float(s.get("start", 0.0)), float(s.get("end", 0.0))))
+    updated = dict(result)
+    updated["segments"] = out_segments
+    updated["text"] = " ".join(
+        text for text in (str(s.get("text", "")).strip() for s in out_segments) if text
+    )
+    return updated, stats
+
+
 def worth_skipping(kept_seconds, duration_seconds, min_save_seconds=10.0,
                    min_save_fraction=0.2):
     """Whether trimming silence saves enough time to justify moving chunk
@@ -712,6 +874,16 @@ def build_parser() -> argparse.ArgumentParser:
         "cuts land in silence instead of mid-word (on by default; a no-op when a "
         "boundary already sits in a quiet spot). Disable with --no-snap-boundaries.",
     )
+    parser.add_argument(
+        "--second-pass",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="After transcribing, audit the result against the audio: re-transcribe "
+        "voiced spans the transcript silently skipped (Whisper deletes speech it "
+        "can't handle) and retry low-confidence segments in isolation (on by "
+        "default; makes zero extra model calls on a clean result). "
+        "Disable with --no-second-pass.",
+    )
     parser.add_argument("--check", action="store_true", help="Check local dependencies and print install hints.")
     return parser
 
@@ -739,7 +911,11 @@ def main() -> None:
     with transcription_slot(args.lock_dir, args.parallel_slots):
         chunks = []
         trimmed = False
-        if args.checkpoint_chunks > 1 or args.skip_silence:
+        audio = None
+        regions = None
+        transcribe_fn = None
+        device = None
+        if args.checkpoint_chunks > 1 or args.skip_silence or args.second_pass:
             audio = load_audio_array(backend, args.audio)
             duration = len(audio) / SAMPLE_RATE
             regions = [(0.0, duration)]
@@ -839,6 +1015,22 @@ def main() -> None:
             result, device = transcribe_mlx(args.audio, model_name, args, prompt)
         else:
             result, device = transcribe_openai_whisper(args.audio, model_name, args, prompt)
+
+        if args.second_pass and audio is not None:
+            if transcribe_fn is None:
+                transcribe_fn = (
+                    make_mlx_transcribe_fn(model_name, args)
+                    if backend == "mlx"
+                    else make_whisper_transcribe_fn(model_name, args, device or choose_device(args.device))
+                )
+            result, sp_stats = second_pass(result, audio, regions, transcribe_fn, prompt)
+            if sp_stats["suspects"] or sp_stats["gaps_found"]:
+                print(
+                    f"Second pass: recovered {sp_stats['gaps_recovered']}/{sp_stats['gaps_found']} "
+                    f"voiced gaps, replaced {sp_stats['replaced']}/{sp_stats['suspects']} "
+                    "suspect segments.",
+                    file=sys.stderr,
+                )
 
     if not (result.get("segments") or str(result.get("text", "")).strip()):
         fail(f"No transcript text produced for {args.audio}", 3)
