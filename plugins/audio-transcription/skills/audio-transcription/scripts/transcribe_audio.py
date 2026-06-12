@@ -21,9 +21,13 @@ except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None
 
 
-DEFAULT_MLX_MODEL = "mlx-community/whisper-large-v3-turbo"
-MLX_MODEL_SOURCE_URL = "https://huggingface.co/mlx-community/whisper-large-v3-turbo"
-MLX_MODEL_DOWNLOAD_COMMAND = "huggingface-cli download --local-dir whisper-large-v3-turbo mlx-community/whisper-large-v3-turbo"
+# Accuracy-first default (decided 2026-06-12 on LibriSpeech clean/other +
+# War & Peace evals): large-v3 beats turbo overall (weighted 3.17% vs 3.33%
+# WER) at ~2.3x the wall time, still ~10x realtime on Apple Silicon. Pass
+# --mlx-model mlx-community/whisper-large-v3-turbo when speed matters more.
+DEFAULT_MLX_MODEL = "mlx-community/whisper-large-v3-mlx"
+MLX_MODEL_SOURCE_URL = "https://huggingface.co/mlx-community/whisper-large-v3-mlx"
+MLX_MODEL_DOWNLOAD_COMMAND = "huggingface-cli download --local-dir whisper-large-v3-mlx mlx-community/whisper-large-v3-mlx"
 DEFAULT_WHISPER_MODEL = "large-v3"
 DEFAULT_FASTER_MODEL = "large-v3"
 DEFAULT_LOCK_DIR = Path("/tmp/audio-transcription-locks")

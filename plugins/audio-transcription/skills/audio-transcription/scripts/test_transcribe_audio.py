@@ -1139,3 +1139,13 @@ class SecondPassDedupTests(unittest.TestCase):
         out, stats = ta.second_pass(result, audio, [(0.0, 12.0)], fake_transcribe, None)
         self.assertEqual(stats["gaps_recovered"], 1)
         self.assertEqual(len(out["segments"]), 3)
+
+
+class AccuracyDefaultTests(unittest.TestCase):
+    """The default model is accuracy-first (decided 2026-06-12 on LibriSpeech
+    clean/other + War & Peace evals): mlx large-v3 beats turbo overall
+    (weighted 3.17% vs 3.33% WER); turbo stays the documented speed opt-in."""
+
+    def test_default_mlx_model_is_large_v3(self):
+        args = ta.build_parser().parse_args(["a.mp3"])
+        self.assertEqual(args.mlx_model, "mlx-community/whisper-large-v3-mlx")
