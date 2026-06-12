@@ -113,6 +113,13 @@ During a chunked run the script also writes a small sidecar, `<output>.progress.
 - To force a full restart, delete the `<output>.progress.json` sidecar before re-running.
 - Resume applies to chunked runs only (single-shot writes once, at the end, so there is nothing partial to resume).
 
+### faster-whisper backend (opt-in, best on hard audio)
+
+`--backend faster` uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2), which decodes with **beam search** (`--beam-size`, default 5) — mlx-whisper is greedy-only. Measured on LibriSpeech chapters (see `evals/librispeech/results.md`): identical to mlx large-v3 on clean speech (1.59% WER), but **~15% relatively more accurate on noisy/accented speech** (3.55% vs 4.17% on test-other) — the best accuracy of any measured config.
+
+- It is never auto-selected: CTranslate2 has no Metal backend, so on Apple Silicon it runs **CPU-only at ~1.5× realtime** (~5.5× slower than mlx large-v3). Reach for it only when transcript precision on hard audio (noisy, accented, far-mic) matters more than turnaround.
+- Requires `python3 -m pip install faster-whisper` (ask the user first). Default model: `large-v3`.
+
 ### Second pass (on by default)
 
 After the main transcription the script audits the result against the audio itself (`--second-pass`, default on) and repairs three Whisper failure modes locally:
