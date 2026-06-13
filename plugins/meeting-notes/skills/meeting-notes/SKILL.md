@@ -5,27 +5,36 @@ description: Process meeting transcripts from rec/ folder into professional mark
 
 # meeting-notes
 
-Process meeting recordings into structured, professional summaries with complete isolation between transcripts.
+Process meeting recordings into structured, professional summaries, with complete isolation between transcripts.
 
-## When to Use This Skill
+## When to use this skill
 
-- User runs `/meeting-notes` command
+- User runs the `/meeting-notes` command
 - User asks to "process meetings", "process recordings", or "generate meeting notes"
-- User mentions unprocessed transcripts in rec/ folder
+- User mentions unprocessed transcripts in the `rec/` folder
 
-## Processing Workflow
+## When not to use
 
-### Step 1: Identify Unprocessed Transcripts
+This is batch summarization of finished text transcripts. Reach for something else when:
 
-1. Read the `rec/` folder to get all .txt files
-2. Read `RECORDINGS.md` to identify which files have already been processed (marked with ✅ Completed)
-3. Create a list of unprocessed transcript files
+- **The input is audio, not text.** Transcribe it first with the `audio-transcription` skill, then point this skill at the resulting `.txt`.
+- **You need live notes during the meeting.** This runs after the fact over a saved transcript, not as captions while people talk.
+- **It's a single short transcript and you're already in the conversation.** The per-transcript subagent isolation buys nothing for one file you can summarize inline; its value is keeping a *batch* of meetings from bleeding into each other.
+- **You need verbatim minutes or a legal record.** This produces a summary — TLDR, decisions, action items — not a faithful line-by-line transcript.
 
-### Step 2: Launch Isolated Subagents
+## Processing workflow
 
-For EACH unprocessed transcript file, launch a separate subagent using the Task tool with subagent_type="general-purpose". Launch ALL subagents in parallel in a SINGLE message with multiple Task tool calls.
+### Step 1: Identify unprocessed transcripts
 
-**CRITICAL**: Each transcript MUST be processed by a separate subagent to prevent context contamination between different meetings.
+1. Read the `rec/` folder to get all `.txt` files.
+2. Read `RECORDINGS.md` to see which files are already done (marked ✅ Completed).
+3. Build the list of unprocessed transcripts.
+
+### Step 2: Launch isolated subagents
+
+For each unprocessed transcript, launch a separate subagent with the Task tool (`subagent_type="general-purpose"`). Launch all of them in parallel, in a single message with multiple Task calls.
+
+**One subagent per transcript is the whole point, not an optimization.** When meetings shared a context, summaries cross-contaminated — attendees, decisions, and action items from one meeting leaked into another's notes. Isolation is the fix: each subagent sees exactly one transcript and nothing else.
 
 Each subagent must receive this exact prompt:
 
@@ -67,20 +76,22 @@ After completing all steps, report:
 - Brief confirmation that RECORDINGS.md was updated
 ```
 
-### Step 3: Humanize Output
+The format block above is prescriptive on purpose. Two rules are load-bearing:
 
-After all subagents complete, apply the `/humanizer` skill to each generated summary to remove AI writing patterns before finalizing.
+- **Action items are checkboxes with a `-- person, timeline` suffix — never tables or `- **Name:** task` bold-name lists.** Left to its own defaults the model drifts into prose, tables, or bold-name lists, none of which render as something you can actually tick off. Pinning one format keeps a batch of summaries consistent.
+- **Headings are `##` for the title and `###` for sections — never `#`.** Models reach for `#` by default, but these summaries get embedded in larger docs where an h1 collides with the host document's structure. Stating it explicitly stops the drift.
 
-### Step 4: Report Results
+### Step 3: Humanize output
 
-After all subagents complete, provide a summary report showing:
-- How many transcripts were processed
-- List of generated summary files
-- Any errors or issues encountered
+After all subagents complete, run the [`humanizer`](../../../humanizer) skill over each generated summary to strip AI writing patterns before finalizing. Raw summaries tend to come back with the usual tells (inflated significance, rule-of-three, em-dash pileups); this pass removes them.
 
-## Summary Templates
+### Step 4: Report results
 
-### Standard Meeting Format
+After all subagents complete, report: how many transcripts were processed, the list of generated summary files, and any errors.
+
+## Summary templates
+
+### Standard meeting format
 ```markdown
 ## Meeting Title
 
@@ -104,7 +115,7 @@ Brief 2-3 sentence summary of key takeaways
 What happens after this meeting
 ```
 
-### Interview Format
+### Interview format
 ```markdown
 ## Candidate Interview: [Name] - [Position]
 
@@ -138,38 +149,43 @@ Neutral (0)
 Go (+1)
 ```
 
-## Translation Guidelines
+## Translation guidelines
 
-When processing Russian transcripts:
-- Translate all content to English
-- Preserve original meaning and context
-- Maintain professional tone in translation
-- Keep technical terms accurate
-- Preserve proper nouns (names, companies, products)
-- Clarify ambiguous phrases with context
+When processing Russian transcripts, translate everything to English, but:
 
-## File Organization
+- Preserve original meaning and context, and keep technical terms accurate.
+- **Keep proper nouns in their original form** — names, companies, products. Auto-translation tends to anglicise or mangle them (a surname turned into a common noun, a product name "helpfully" translated), so they're called out for explicit preservation.
+- Clarify genuinely ambiguous phrases from context rather than translating them word-for-word.
 
-**Input**:
-- Meeting transcripts as `.txt` files in `rec/` folder
-- Format: `YYYYMMDD HHMM Transcription [LANG].txt`
+## File organization
 
-**Output**:
-- Summary files in `summaries/` folder: `summaries/yyyy-mm-dd_meeting-topic.md`
-- Tracker file: `RECORDINGS.md`
+**Input:** meeting transcripts as `.txt` files in `rec/`, named `YYYYMMDD HHMM Transcription [LANG].txt`. The leading `YYYYMMDD` is what the summary date is derived from.
 
-**Tracking**:
-Update `RECORDINGS.md` with:
-- Source transcript filename
-- Generated summary filename
-- ✅ Completed status
-- Processing date
+**Output:** one summary per meeting in `summaries/`, named `yyyy-mm-dd_meeting-topic.md`.
 
-## Important Notes
+**Tracking:** `RECORDINGS.md` gets a new row per processed file — source filename, summary filename, ✅ Completed, and the processing date. This is what step 1 reads to skip already-done transcripts, so re-running the skill never reprocesses a meeting.
 
-- **Context Isolation**: Each transcript is processed by a separate subagent - no context leakage between meetings
-- **Parallel Processing**: Launch all subagents in parallel for efficiency
-- **Language Support**: Automatically detect and translate Russian content to English
-- **Format Detection**: Automatically identify interview vs standard meeting format
-- **Date Extraction**: Parse date from filename (YYYYMMDD format)
-- **No Manual Cleanup**: Subagent isolation eliminates need for /clear between files
+A real transcript → summary pair lives in [`examples/`](./examples/).
+
+## Anti-patterns
+
+- **Don't process multiple transcripts in one context.** Shared context cross-contaminates summaries (attendees and decisions leak between meetings). One isolated subagent per transcript, always.
+- **Don't format action items as tables, numbered lists, or `- **Name:** task` bold-name lists.** Only `- [ ] task -- person, timeline` checkboxes render as something actionable and scan consistently across a batch.
+- **Don't title summaries with `#` (h1).** Use `##` for the title, `###` for sections — these notes get embedded in larger documents.
+- **Don't translate proper nouns.** Names, companies, and products stay in their original form even when the rest is translated.
+- **Don't skip the humanizer pass.** Raw model summaries carry AI tells; step 3 is not optional.
+- **Don't reprocess completed transcripts.** Check `RECORDINGS.md` first and only handle files not already marked ✅ Completed.
+
+## Known failure modes
+
+- **Cross-meeting contamination** — decisions or attendees from one meeting surface in another's summary. Mitigation: one isolated subagent per transcript (see step 2).
+- **Action-item format drift** — items come back as prose, a table, or bold-name lists you can't tick off. Mitigation: the prescriptive checkbox format in the subagent prompt.
+- **Wrong / missing date** — a filename without a leading `YYYYMMDD` leaves the date ambiguous. Mitigation: date is parsed from the filename prefix; if it's absent, the subagent flags it rather than guessing.
+- **Proper nouns mangled in translation** — names anglicised or product names translated. Mitigation: the explicit preserve-proper-nouns rule in the translation guidelines.
+- **Interview misread as a standard meeting** — a candidate interview summarised with the wrong template. Mitigation: the subagent detects interview transcripts and switches to the interview format.
+
+## Tested with
+
+- **Runtime:** Claude Code · model `claude-opus-4-8`.
+- **Skill type:** prompt-only (no bundled script); validated by running the full workflow.
+- **Last validated:** 2026-06-13 — processed the fictional onboarding-sync transcript in `examples/` end to end (standard template, checkbox action items, `##`/`###` headings) and ran the `humanizer` pass on the result.

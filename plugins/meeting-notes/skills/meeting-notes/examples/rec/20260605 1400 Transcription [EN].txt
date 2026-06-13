@@ -1,0 +1,16 @@
+[00:00] Priya: Okay, are we recording? Yeah, okay. So, um, this is the onboarding redesign sync, June 5th. Thanks everyone for jumping on.
+[00:14] Marcus: No problem. So where did we land on the signup flow last week?
+[00:21] Priya: Right, so the big thing is we agreed to cut the flow from five screens down to three. Dana ran the numbers on drop-off.
+[00:33] Dana: Yeah, so the data's pretty clear. We lose about forty percent of users between screen two and screen three. The phone verification step is the worst offender.
+[00:48] Marcus: Forty percent, that's brutal. Can we just defer phone verification to after the first session?
+[00:57] Dana: That's what I'd recommend. Move it to a soft prompt later. We keep email-only for the initial signup.
+[01:10] Priya: Okay, so decision one, we go email-only for signup and defer phone verification. Marcus, can you own the spec for that?
+[01:20] Marcus: Yeah, I can have a draft by end of next week.
+[01:25] Priya: Great. Second thing, the welcome screen copy. Marketing wants it punchier. I don't love the current draft, honestly.
+[01:36] Dana: Can we A/B test it instead of arguing about it?
+[01:41] Priya: I like that. Dana, set up the A/B test once Marcus's spec is in. No rush, after the spec.
+[01:50] Dana: Sure, I'll wait for the spec.
+[01:54] Marcus: One thing I'm worried about, do legal need to sign off on dropping phone verification? The fraud team had opinions last time.
+[02:05] Priya: Good flag. I'll check with legal and fraud before we commit to shipping. Let me take that.
+[02:14] Marcus: Cool.
+[02:16] Priya: Okay, anything else? No? Alright, thanks everyone.
