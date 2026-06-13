@@ -38,6 +38,8 @@ Run the command or just ask:
 
 ## Learn more
 
-Full workflow and templates: [`skills/meeting-notes/SKILL.md`](./skills/meeting-notes/SKILL.md).
+- Workflow, templates, and anti-patterns: [`skills/meeting-notes/SKILL.md`](./skills/meeting-notes/SKILL.md)
+- Behavioral scenarios + trigger set: [`skills/meeting-notes/EVALS.md`](./skills/meeting-notes/EVALS.md)
+- A real transcript → summary: [`skills/meeting-notes/examples/`](./skills/meeting-notes/examples/)
 
 Mine, MIT-licensed (see the root [LICENSE](../../LICENSE)).
