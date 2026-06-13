@@ -11,6 +11,17 @@ Supported audio formats: `wav`, `mp3`, and `m4a`.
 
 The bundled script lives at `${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py`, where `${CLAUDE_PLUGIN_ROOT}` is the plugin's installed root directory (the parent of `skills/`). If the variable is not set in the shell, substitute the absolute plugin root path.
 
+## When not to use
+
+This is batch, file-to-Markdown transcription. Reach for something else when:
+
+- **Real-time or streaming transcription** is needed (live captions, dictation as you speak). This skill runs offline over a finished recording.
+- **Speaker diarization / "who said what"** is the goal. The output is a single timeline with no per-speaker labels; Whisper does not separate voices.
+- **The clip is a few seconds long** and you only need the gist. Claude can often listen inline without standing up Whisper and its dependencies.
+- **Lyric transcription needs musical notation** (chords, timing, melody). This produces plain text lines, not a lead sheet.
+- **The audio is heavily overlapped multi-speaker** (crosstalk, a noisy panel). Whisper transcribes the dominant voice and garbles the overlap; expect to clean up by hand.
+- **The file is not `wav`, `mp3`, or `m4a`.** Convert it first (e.g. `ffmpeg -i in.flac out.wav`) rather than pointing the script at an unsupported container.
+
 ## Apple Silicon Requirement
 
 On any Apple Silicon Mac (`darwin` with `arm64` or `aarch64`), use `mlx-whisper`. This is a requirement for this skill, not a preference.
@@ -141,6 +152,27 @@ Whisper can fall into a repetition loop (one phrase repeated for minutes), infla
 - Whisper model downloads may require network access. Ask the user before running a command that will download packages or model weights.
 - `ffmpeg` must be available on `PATH` for most audio formats.
 
+## Anti-patterns
+
+The defaults already avoid these; the list is here so you don't reintroduce them by reaching for a flag without the context behind it.
+
+- **Don't run `--backend whisper` (openai-whisper/Torch) on Apple Silicon.** It's slower and less accurate than `mlx-whisper`, and the script refuses it anyway. Let `--backend auto` pick.
+- **Don't re-enable `--condition-previous` on long audio.** Cross-segment conditioning is what drives Whisper's minutes-long repetition loops; it's off by default for that reason. Only reach for it on short, clean clips where cross-sentence coherence matters.
+- **Don't carry the previous chunk's text across a boundary as a prompt.** It conditions the decoder across the cut and makes Whisper silently drop the start of the next chunk (~75 words lost, measured). Each chunk gets only the user's `--prompt`.
+- **Don't force chunks down toward Whisper's 30s window.** Below ~20s, accuracy and wall time both degrade. The default `--checkpoint-min-seconds 45` floor is load-bearing — lower it only with a measured reason.
+- **Don't `--no-skip-silence` / `--no-snap-boundaries` reflexively.** They are accuracy wins on by default. Opt out only for the narrow cases they hurt (music with genuinely-quiet passages; audio with no detectable pauses).
+- **Don't install dependencies or download model weights silently.** Tell the user what's missing and ask first — every install and first-run download crosses the network.
+
+## Known failure modes
+
+Each is handled by a default-on mitigation; the detail lives in the section named.
+
+- **Repetition loops** — one phrase repeated for minutes. Mitigation: `condition_on_previous_text` off by default (see *Repetition-loop hallucinations*).
+- **Boundary deletion** — a word split across a hard chunk cut is mis-transcribed on both sides. Mitigation: boundary snapping lands cuts in pauses; ≥45s chunks (see *Boundary snapping*).
+- **Silence hallucination** — Whisper invents phrases (e.g. "Thank you.") over long silences. Mitigation: silence skipping + the second pass's overlay drop (see *Silence skipping*, *Second pass*).
+- **Silently deleted speech** — Whisper leaves a hole with no token and no error. Mitigation: the second pass re-transcribes voiced gaps no segment covers (see *Second pass*).
+- **Interrupted runs** — crash, `Ctrl-C`, or sleep partway through a long job. Mitigation: re-run the same command; it resumes from the sidecar (see *Resuming after a failure*).
+
 ## Output
 
 The default output is a Markdown file next to the audio file with the same basename. It contains:
@@ -148,3 +180,30 @@ The default output is a Markdown file next to the audio file with the same basen
 - A title heading.
 - A `Source` section with audio filename, backend, model, language, and optional speaker metadata.
 - A `Transcript` section with `[start-end] text` segments when segment timestamps are available.
+
+A real rendered output (first lines of the worked example in `examples/`):
+
+```markdown
+# War and Peace — Vol. 1, Pt. 1, Ch. 1 (opening)
+
+## Source
+- Audio: `wap_v1_p1_ch1_clip.mp3`
+- Backend: `mlx`
+- Model: `mlx-community/whisper-large-v3-mlx`
+- Detected language: `en`
+
+## Transcript
+
+[00:31-00:39] Well, Prince, Genoa and Lucha are now nothing more than the Apo Nij, than the private property
+
+[00:39-00:45] of the Bonaparte family. I warn you that if you do not tell me we are going to have a war,
+```
+
+The full input → output pair lives in [`examples/`](./examples/).
+
+## Tested with
+
+- **Runtime:** macOS Apple Silicon · Python 3.9.6 · `mlx-whisper` (greedy decoding, deterministic).
+- **Models:** `mlx-community/whisper-large-v3-mlx` (default) and `…-turbo`; `faster-whisper` `large-v3` (beam 5) as the opt-in hard-audio backend.
+- **Last validated:** 2026-06-12.
+- **Fixture WER (English):** large-v3 **3.17%** / turbo **3.33%** weighted across LibriSpeech test-clean + test-other chapters and a LibriVox audiobook chapter; large-v3 **3.8%** on the War & Peace fixture; `faster-whisper` beam-5 **3.55%** on test-other (best on noisy/accented speech). Full scoreboards: `evals/results.md`, `evals/librispeech/results.md`.
