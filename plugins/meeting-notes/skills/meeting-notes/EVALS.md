@@ -2,8 +2,9 @@
 
 These check that the **skill behaves** — triggers on the right asks, isolates each transcript,
 skips finished ones, and holds the output format (checkbox action items, `##`/`###` headings,
-preserved proper nouns). This is a prompt-only skill, so there's no separate accuracy harness;
-the worked example in [`examples/`](./examples/) is the reference output.
+preserved proper nouns). It's mostly prompt-driven, with one bundled mechanical helper
+(`archive-old-recordings.py`) that has its own deterministic checks, so there's no separate
+accuracy harness; the worked example in [`examples/`](./examples/) is the reference output.
 
 Each scenario is input → expected behavior → verdict criterion. Run them by hand, or wire the
 trigger set at the bottom into `skill-creator`'s `scripts/run_loop.py`.
@@ -55,6 +56,16 @@ trigger set at the bottom into `skill-creator`'s `scripts/run_loop.py`.
 - **Expected:** The subagent flags the missing date instead of inventing one for the `yyyy-mm-dd_` filename.
 - **Verdict:** Pass if it surfaces the ambiguity; fail if it silently fabricates a date.
 
+### S10 — Subagents return tracker rows; the orchestrator writes them
+- **Input:** A batch of unprocessed transcripts.
+- **Expected:** Each subagent creates only its summary file and returns a tracker row. The orchestrator writes all rows to `RECORDINGS.md` in one serial pass (Step 4); no subagent edits the tracker.
+- **Verdict:** Pass if every processed transcript ends up with exactly one row and none are lost; fail if subagents write the tracker directly or rows go missing.
+
+### S11 — Archiving runs first and never strands a transcript
+- **Input:** A `RECORDINGS.md` with rows older than three months whose transcripts are still in `rec/`.
+- **Expected:** Step 0 runs first and moves old rows and their transcripts together into `archive/`. Every transcript left in `rec/` still has a live tracker row.
+- **Verdict:** Pass if old entries are archived as pairs and nothing in `rec/` lacks a row; fail if a row is archived while its transcript stays in `rec/` (which would reprocess it).
+
 ## What broke and how I fixed it
 
 Two real failures from using the skill; the prescriptive rules in `SKILL.md` exist because of them.
@@ -70,6 +81,12 @@ Two real failures from using the skill; the prescriptive rules in `SKILL.md` exi
 - **Root cause:** Shared context — the model carried details across transcripts it should have treated as unrelated.
 - **Fix:** One isolated subagent per transcript, each told no other transcripts exist in its context. Contamination disappeared, and there's no need to `/clear` between files.
 - **Covered by:** scenario S2 and the isolation anti-pattern in `SKILL.md`.
+
+### F3 — Tracker rows lost when subagents wrote `RECORDINGS.md` in parallel
+- **Symptom:** After processing a batch, some completed meetings were missing from `RECORDINGS.md` — and got reprocessed on the next run.
+- **Root cause:** Every subagent edited the shared tracker at once. Concurrent writes to one file race; last-writer-wins drops the others' rows.
+- **Fix:** Subagents return their row and never touch the tracker; the orchestrator appends all rows in a single serial pass (Step 4), then verifies each filename appears exactly once.
+- **Covered by:** scenario S10 and the tracker-write anti-pattern in `SKILL.md`.
 
 ## Trigger-rate test set
 

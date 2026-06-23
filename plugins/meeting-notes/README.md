@@ -11,6 +11,7 @@ is processed by its own isolated subagent, so one meeting never bleeds context i
 
 ## What it does
 
+- Archives entries older than three months before each run (Step 0), moving tracker rows and their transcripts together so `rec/` and `RECORDINGS.md` stay small and nothing already done gets reprocessed.
 - Reads unprocessed `.txt` transcripts from a `rec/` folder and tracks what's done in `RECORDINGS.md`.
 - Launches one subagent per transcript **in parallel**, each fully isolated — no cross-meeting
   contamination, no need to `/clear` between files.
@@ -35,6 +36,7 @@ Run the command or just ask:
 
 - **Input:** `rec/*.txt`, named `YYYYMMDD HHMM Transcription [LANG].txt`.
 - **Output:** `summaries/yyyy-mm-dd_topic.md`, tracked in `RECORDINGS.md`.
+- **Archive:** entries older than three months move to `archive/` (rows + transcripts), keeping the working set small.
 
 ## Learn more
 
