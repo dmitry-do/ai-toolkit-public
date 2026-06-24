@@ -7,7 +7,7 @@ everywhere else it falls back to `openai-whisper`.
 ## Install
 
 ```
-/plugin install audio-transcription@ai-toolkit
+/plugin install audio-transcription@ai-toolkit-public
 ```
 
 ## What it does

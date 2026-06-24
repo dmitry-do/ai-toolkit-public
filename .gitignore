@@ -1,0 +1,23 @@
+.DS_Store
+*.log
+node_modules/
+__pycache__/
+*.pyc
+*.tmp
+
+# Copyrighted eval clip — do not commit (public-domain fixtures under evals/ ARE tracked)
+evals/hp-clip.*
+
+# Generated transcripts (reproducible via evals/run.py; results.md holds the scores)
+evals/warandpeace/transcripts/
+
+# Derived aligned audio (regenerate from the full mp3 — see evals/README.md)
+evals/warandpeace/audio/*_aligned.mp3
+
+# LibriSpeech corpora (download test-clean / test-other from https://www.openslr.org/12)
+evals/LibriSpeech_clean/
+evals/LibriSpeech_other/
+
+# LibriSpeech eval artifacts (regenerable via evals/librispeech/run_librispeech.py)
+evals/librispeech/work/
+evals/librispeech/transcripts/

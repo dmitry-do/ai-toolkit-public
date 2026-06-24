@@ -1,0 +1,37 @@
+{
+  "name": "ai-toolkit-public",
+  "owner": {
+    "name": "dmitry-do",
+    "url": "https://github.com/dmitry-do"
+  },
+  "metadata": {
+    "description": "A curated public subset of Claude Code plugins: audio transcription, meeting notes, and a writing humanizer, plus the audio-transcription eval harness.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "audio-transcription",
+      "source": "./plugins/audio-transcription",
+      "description": "Transcribe wav, mp3, and m4a recordings (meetings, calls, interviews, lectures, podcasts) into timestamped Markdown with Whisper: mlx-whisper on Apple Silicon, openai-whisper elsewhere.",
+      "version": "0.1.0",
+      "category": "audio",
+      "keywords": ["audio", "transcription", "whisper", "mlx", "speech-to-text"]
+    },
+    {
+      "name": "meeting-notes",
+      "source": "./plugins/meeting-notes",
+      "description": "Process meeting transcripts from a rec/ folder into professional markdown summaries with isolation between transcripts.",
+      "version": "0.1.0",
+      "category": "productivity",
+      "keywords": ["meetings", "transcripts", "notes"]
+    },
+    {
+      "name": "humanizer",
+      "source": "./plugins/humanizer",
+      "description": "Remove signs of AI-generated writing from text. Detects em-dash overuse, rule-of-three, AI vocabulary, passive voice, negative parallelisms, and more. Upstream: blader/humanizer (MIT).",
+      "version": "2.5.1",
+      "category": "writing",
+      "keywords": ["writing", "editing", "ai-detection"]
+    }
+  ]
+}

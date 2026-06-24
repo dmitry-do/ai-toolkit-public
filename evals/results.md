@@ -215,8 +215,7 @@ the floor to bind via `--checkpoint-chunks 500`. Aligned 823s audio, `--language
 ## Second pass + accuracy-first default (2026-06-12)
 
 Two changes shipped together on the `feature/accuracy-defaults` work (see
-`evals/librispeech/results.md` for the LibriSpeech side and
-`an internal design doc` for the design):
+`evals/librispeech/results.md` for the LibriSpeech side):
 
 **Second pass (`--second-pass`, default ON).** After the main transcription the
 script audits the result against the audio (erm-inspired: Whisper fails by

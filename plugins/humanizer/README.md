@@ -7,7 +7,7 @@ by WikiProject AI Cleanup.
 ## Install
 
 ```
-/plugin install humanizer@ai-toolkit
+/plugin install humanizer@ai-toolkit-public
 ```
 
 ## What it does

@@ -6,7 +6,7 @@ is processed by its own isolated subagent, so one meeting never bleeds context i
 ## Install
 
 ```
-/plugin install meeting-notes@ai-toolkit
+/plugin install meeting-notes@ai-toolkit-public
 ```
 
 ## What it does
