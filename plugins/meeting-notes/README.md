@@ -3,11 +3,23 @@
 Turn raw meeting transcripts into clean, structured summaries you can actually read. Each transcript
 is processed by its own isolated subagent, so one meeting never bleeds context into another.
 
-## Install
+## Install in Claude Code
 
 ```
+/plugin marketplace add dmitry-do/ai-toolkit-public
 /plugin install meeting-notes@ai-toolkit-public
 ```
+
+## Install in Claude Web
+
+Works on claude.ai over uploaded/pasted transcripts (no local `rec/` folder needed — see the
+"On Claude Web" note in the skill). Package the skill folder:
+
+```bash
+scripts/package-skill.sh meeting-notes        # writes dist/meeting-notes-skill.zip
+```
+
+Then in claude.ai: **Customize → Skills → Add → Create skill → Upload a skill**, and select the zip.
 
 ## What it does
 
@@ -32,16 +44,23 @@ Run the command or just ask:
 
 > "process the recordings in rec/" · "generate meeting notes"
 
-## Input / output
-
-- **Input:** `rec/*.txt`, named `YYYYMMDD HHMM Transcription [LANG].txt`.
+- **Input:** `rec/*.txt`, named `YYYYMMDD HHMM Transcription [LANG].txt` (or uploaded transcripts on claude.ai).
 - **Output:** `summaries/yyyy-mm-dd_topic.md`, tracked in `RECORDINGS.md`.
-- **Archive:** entries older than three months move to `archive/` (rows + transcripts), keeping the working set small.
+- **Archive:** entries older than three months move to `archive/` (rows + transcripts).
 
-## Learn more
+## Structure
 
-- Workflow, templates, and anti-patterns: [`skills/meeting-notes/SKILL.md`](./skills/meeting-notes/SKILL.md)
-- Behavioral scenarios + trigger set: [`skills/meeting-notes/EVALS.md`](./skills/meeting-notes/EVALS.md)
-- A real transcript → summary: [`skills/meeting-notes/examples/`](./skills/meeting-notes/examples/)
+```
+plugins/meeting-notes/
+├── .claude-plugin/plugin.json   # marketplace manifest
+├── README.md                    # this file
+└── skills/meeting-notes/        # this folder is what uploads to Claude Web
+    ├── SKILL.md                 # workflow, templates, anti-patterns
+    ├── archive-old-recordings.py # local archiving helper (unused on Claude Web)
+    └── examples/                # a real transcript → summary
 
+evals/meeting-notes/EVALS.md     # behavioral scenarios — NOT installed with the plugin
+```
+
+Depends on the [`humanizer`](../humanizer) skill (Step 3 runs it; not optional).
 Mine, MIT-licensed (see the root [LICENSE](../../LICENSE)).

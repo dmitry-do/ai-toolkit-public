@@ -22,6 +22,14 @@ This is batch summarization of finished text transcripts. Reach for something el
 - **It's a single short transcript and you're already in the conversation.** The per-transcript subagent isolation buys nothing for one file you can summarize inline; its value is keeping a *batch* of meetings from bleeding into each other.
 - **You need verbatim minutes or a legal record.** This produces a summary — TLDR, decisions, action items — not a faithful line-by-line transcript.
 
+## On Claude Web
+
+There is no local `rec/` folder on claude.ai. Upload or paste each transcript and ask for
+notes; Step 0 (archiving) and `RECORDINGS.md` tracking are local-machine conveniences that
+simply don't apply there. Treat each uploaded/pasted transcript as one item and apply the
+summarization template (Steps 2+) per transcript — the per-transcript isolation still holds
+because each is its own input. Step 3's `humanizer` pass remains required.
+
 ## Processing workflow
 
 ### Step 0: Archive recordings older than 3 months (run first)
@@ -103,7 +111,7 @@ The format block above is prescriptive on purpose. Two rules are load-bearing:
 
 ### Step 3: Humanize output
 
-After all subagents complete, run the [`humanizer`](../../../humanizer) skill over each generated summary to strip AI writing patterns before finalizing. Raw summaries tend to come back with the usual tells (inflated significance, rule-of-three, em-dash pileups); this pass removes them. Keep the register neutral and factual — these are minutes, not a place for personal voice.
+After all subagents complete, run the `humanizer` skill over each generated summary to strip AI writing patterns before finalizing. Raw summaries tend to come back with the usual tells (inflated significance, rule-of-three, em-dash pileups); this pass removes them. Keep the register neutral and factual — these are minutes, not a place for personal voice.
 
 ### Step 4: Update `RECORDINGS.md` (orchestrator only)
 

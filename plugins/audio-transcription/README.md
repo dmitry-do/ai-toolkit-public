@@ -4,11 +4,17 @@ Turn `wav`, `mp3`, and `m4a` recordings — meetings, calls, interviews, lecture
 memos, songs — into timestamped Markdown with Whisper. On Apple Silicon it uses `mlx-whisper`;
 everywhere else it falls back to `openai-whisper`.
 
-## Install
+## Install in Claude Code
 
 ```
+/plugin marketplace add dmitry-do/ai-toolkit-public
 /plugin install audio-transcription@ai-toolkit-public
 ```
+
+## Claude Web
+
+Claude Code only — not available on claude.ai, because it needs local `mlx-whisper`/`ffmpeg` and
+reads audio files from your machine, neither of which the claude.ai sandbox provides.
 
 ## What it does
 
@@ -38,18 +44,21 @@ python3 "$ROOT/scripts/transcribe_audio.py" "recording.mp3" \
   --mlx-model mlx-community/whisper-large-v3-turbo                          # ~2.3× faster
 ```
 
-## Requirements
+**Requirements:** Apple Silicon → `pip install mlx-whisper`; other platforms → `pip install openai-whisper torch`; `ffmpeg` on `PATH`. The skill asks before installing anything or downloading model weights.
 
-- **Apple Silicon:** `pip install mlx-whisper` (the script enforces this backend here).
-- **Other platforms:** `pip install openai-whisper torch`.
-- `ffmpeg` on `PATH` for most formats.
+## Structure
 
-The skill asks before installing anything or downloading model weights.
+```
+plugins/audio-transcription/
+├── .claude-plugin/plugin.json   # marketplace manifest
+├── README.md                    # this file
+└── skills/audio-transcription/
+    ├── SKILL.md                 # defaults, anti-patterns, "Tested with" stamp
+    ├── scripts/transcribe_audio.py   # the transcription script
+    └── examples/                # a real worked input → output
 
-## Learn more
-
-- Skill, defaults, and anti-patterns: [`skills/audio-transcription/SKILL.md`](./skills/audio-transcription/SKILL.md)
-- Behavioral scenarios + trigger set: [`skills/audio-transcription/EVALS.md`](./skills/audio-transcription/EVALS.md)
-- A real worked input → output: [`skills/audio-transcription/examples/`](./skills/audio-transcription/examples/)
+evals/audio-transcription/EVALS.md   # behavioral scenarios — NOT installed with the plugin
+evals/                               # WER accuracy harness + fixtures — NOT installed
+```
 
 Mine, MIT-licensed (see the root [LICENSE](../../LICENSE)).

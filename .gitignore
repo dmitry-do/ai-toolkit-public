@@ -21,3 +21,6 @@ evals/LibriSpeech_other/
 # LibriSpeech eval artifacts (regenerable via evals/librispeech/run_librispeech.py)
 evals/librispeech/work/
 evals/librispeech/transcripts/
+
+# skill packaging output (regenerate via scripts/package-skill.sh)
+/dist/

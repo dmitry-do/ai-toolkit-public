@@ -4,7 +4,7 @@ These check that the **skill behaves** — triggers on the right asks, isolates 
 skips finished ones, and holds the output format (checkbox action items, `##`/`###` headings,
 preserved proper nouns). It's mostly prompt-driven, with one bundled mechanical helper
 (`archive-old-recordings.py`) that has its own deterministic checks, so there's no separate
-accuracy harness; the worked example in [`examples/`](./examples/) is the reference output.
+accuracy harness; the worked example in [`examples/`](../../plugins/meeting-notes/skills/meeting-notes/examples/) is the reference output.
 
 Each scenario is input → expected behavior → verdict criterion. Run them by hand, or wire the
 trigger set at the bottom into `skill-creator`'s `scripts/run_loop.py`.
