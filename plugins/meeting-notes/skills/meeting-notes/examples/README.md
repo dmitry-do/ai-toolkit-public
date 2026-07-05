@@ -7,7 +7,7 @@ meeting is fictional (no real people or company), so there's nothing to anonymis
   transcript, complete with the disfluencies a real recording carries ("um", "yeah okay", false
   starts).
 - **Output:** [`summaries/2026-06-05_onboarding-redesign-sync.md`](./summaries/2026-06-05_onboarding-redesign-sync.md)
-  — the summary the skill produces, after the `humanizer` pass that step 3 of the workflow runs.
+  — the summary the skill produces, after the optional `humanizer` pass from step 3 of the workflow (run here because `humanizer` was installed).
 
 What the example exercises:
 

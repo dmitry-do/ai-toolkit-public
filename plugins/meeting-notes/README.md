@@ -32,7 +32,7 @@ Then in claude.ai: **Customize → Skills → Add → Create skill → Upload a 
 - Detects interview transcripts and switches to an interview template (background, strengths,
   growth areas, decision).
 - Translates Russian transcripts to English while preserving names, terms, and meaning.
-- Runs each summary through the [`humanizer`](../humanizer) skill before finalizing.
+- Optionally runs each summary through the [`humanizer`](https://github.com/blader/humanizer) skill as a final cleanup pass — only when that skill is installed and active.
 
 ## Usage
 
@@ -62,5 +62,5 @@ plugins/meeting-notes/
 evals/meeting-notes/EVALS.md     # behavioral scenarios — NOT installed with the plugin
 ```
 
-Depends on the [`humanizer`](../humanizer) skill (Step 3 runs it; not optional).
+Optionally uses the [`humanizer`](https://github.com/blader/humanizer) skill for a final cleanup pass (Step 3) when it's installed — the plugin works fine without it.
 Mine, MIT-licensed (see the root [LICENSE](../../LICENSE)).

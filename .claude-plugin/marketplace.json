@@ -5,7 +5,7 @@
     "url": "https://github.com/dmitry-do"
   },
   "metadata": {
-    "description": "A curated public subset of Claude Code plugins: audio transcription, meeting notes, and a writing humanizer, plus the audio-transcription eval harness.",
+    "description": "A curated public subset of Claude Code plugins: audio transcription and meeting notes, plus the audio-transcription eval harness.",
     "version": "0.1.0"
   },
   "plugins": [
@@ -24,14 +24,6 @@
       "version": "0.1.0",
       "category": "productivity",
       "keywords": ["meetings", "transcripts", "notes"]
-    },
-    {
-      "name": "humanizer",
-      "source": "./plugins/humanizer",
-      "description": "Remove signs of AI-generated writing from text. Detects em-dash overuse, rule-of-three, AI vocabulary, passive voice, negative parallelisms, and more. Upstream: blader/humanizer (MIT).",
-      "version": "2.5.1",
-      "category": "writing",
-      "keywords": ["writing", "editing", "ai-detection"]
     }
   ]
 }

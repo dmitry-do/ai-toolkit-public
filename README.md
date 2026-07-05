@@ -1,6 +1,6 @@
 # 🧰 ai-toolkit-public
 
-A curated public subset of my Claude Code plugins: audio transcription, meeting notes, and a writing humanizer — plus the eval harness behind the transcription work. Some I wrote; one is a mirror of someone else's good work, with attribution.
+A curated public subset of my Claude Code plugins: audio transcription and meeting notes — plus the eval harness behind the transcription work.
 
 ## Install
 
@@ -16,10 +16,7 @@ Inside Claude Code:
 | Plugin | What it does | Source |
 | --- | --- | --- |
 | 🎙️ [`audio-transcription`](./plugins/audio-transcription) | Turns `wav`/`mp3`/`m4a` recordings into timestamped Markdown with Whisper. Uses `mlx-whisper` on Apple Silicon, `openai-whisper` everywhere else. | Mine |
-| 📝 [`meeting-notes`](./plugins/meeting-notes) | Cleans raw transcripts in `rec/` into meeting summaries you can actually read. Runs `humanizer` as a final pass. | Mine |
-| ✍️ [`humanizer`](./plugins/humanizer) | Strips the tells of AI writing: em-dash pileups, rule-of-three, stock vocabulary, and the rest. | Mirror of [blader/humanizer](https://github.com/blader/humanizer) (MIT) |
-
-`humanizer` ships here because `meeting-notes` depends on it for its final cleanup pass.
+| 📝 [`meeting-notes`](./plugins/meeting-notes) | Cleans raw transcripts in `rec/` into meeting summaries you can actually read. | Mine |
 
 Each plugin has its own `README.md`; [`plugins/`](./plugins) has an index.
 
@@ -29,4 +26,4 @@ Each plugin has its own `README.md`; [`plugins/`](./plugins) has an index.
 
 ## License
 
-[MIT](./LICENSE) covers the marketplace wrapper, the plugins I wrote, and the `NOTICE.md` files. The mirrored `humanizer` keeps its original MIT license and attribution in [`plugins/humanizer/NOTICE.md`](./plugins/humanizer/NOTICE.md).
+[MIT](./LICENSE) covers the marketplace wrapper and the plugins.

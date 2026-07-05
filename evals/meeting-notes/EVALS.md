@@ -46,10 +46,10 @@ trigger set at the bottom into `skill-creator`'s `scripts/run_loop.py`.
 - **Expected:** Summary is in English; names, company, and product stay in their original form rather than being anglicised or translated.
 - **Verdict:** Pass if the meaning is translated but proper nouns are intact; fail if a name/product gets translated into a common noun.
 
-### S8 — Humanizer pass runs before finalizing
+### S8 — Optional humanizer pass runs when `humanizer` is installed
 - **Input:** Any transcript that produces a first-draft summary with AI tells.
-- **Expected:** Step 3 runs the `humanizer` skill over each summary before it's reported as done.
-- **Verdict:** Pass if the finalized summary is humanized; fail if the raw draft is delivered.
+- **Expected:** If the `humanizer` skill is installed and active, Step 3 runs it over each summary before it's reported as done. If `humanizer` isn't installed, Step 3 is skipped and the summary is still delivered.
+- **Verdict:** Pass if the summary is humanized when `humanizer` is available, or cleanly skipped (summary still delivered) when it isn't; fail if the run errors on a missing `humanizer`, or delivers a raw draft as final while `humanizer` was available.
 
 ### S9 — Filename with no date is flagged, not guessed
 - **Input:** A transcript whose filename has no leading `YYYYMMDD`.

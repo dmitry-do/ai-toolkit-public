@@ -28,7 +28,8 @@ There is no local `rec/` folder on claude.ai. Upload or paste each transcript an
 notes; Step 0 (archiving) and `RECORDINGS.md` tracking are local-machine conveniences that
 simply don't apply there. Treat each uploaded/pasted transcript as one item and apply the
 summarization template (Steps 2+) per transcript — the per-transcript isolation still holds
-because each is its own input. Step 3's `humanizer` pass remains required.
+because each is its own input. Step 3's `humanizer` pass is optional — run it only if the
+`humanizer` skill is installed and active in your Claude Web workspace.
 
 ## Processing workflow
 
@@ -109,9 +110,11 @@ The format block above is prescriptive on purpose. Two rules are load-bearing:
 - **Action items are checkboxes with a `-- person, timeline` suffix — never tables or `- **Name:** task` bold-name lists.** Left to its own defaults the model drifts into prose, tables, or bold-name lists, none of which render as something you can actually tick off. Pinning one format keeps a batch of summaries consistent.
 - **Headings are `##` for the title and `###` for sections — never `#`.** Models reach for `#` by default, but these summaries get embedded in larger docs where an h1 collides with the host document's structure. Stating it explicitly stops the drift.
 
-### Step 3: Humanize output
+### Step 3 (optional): Humanize output — if `humanizer` is installed
 
-After all subagents complete, run the `humanizer` skill over each generated summary to strip AI writing patterns before finalizing. Raw summaries tend to come back with the usual tells (inflated significance, rule-of-three, em-dash pileups); this pass removes them. Keep the register neutral and factual — these are minutes, not a place for personal voice.
+This step only applies if the [`humanizer`](https://github.com/blader/humanizer) skill is installed and active in your environment (Claude Code or Claude Web). When it is, run it over each generated summary as a final pass to strip AI writing patterns before finalizing. Raw summaries tend to come back with the usual tells (inflated significance, rule-of-three, em-dash pileups); this pass removes them. Keep the register neutral and factual — these are minutes, not a place for personal voice.
+
+If `humanizer` isn't installed, skip this step — the summaries are complete without it.
 
 ### Step 4: Update `RECORDINGS.md` (orchestrator only)
 
@@ -211,7 +214,6 @@ A real transcript → summary pair lives in [`examples/`](./examples/).
 - **Don't format action items as tables, numbered lists, or `- **Name:** task` bold-name lists.** Only `- [ ] task -- person, timeline` checkboxes render as something actionable and scan consistently across a batch.
 - **Don't title summaries with `#` (h1).** Use `##` for the title, `###` for sections — these notes get embedded in larger documents.
 - **Don't translate proper nouns.** Names, companies, and products stay in their original form even when the rest is translated.
-- **Don't skip the humanizer pass.** Raw model summaries carry AI tells; step 3 is not optional.
 - **Don't reprocess completed transcripts.** Check `RECORDINGS.md` first and only handle files not already marked ✅ Completed.
 - **Don't let subagents write `RECORDINGS.md`.** Concurrent writes to the shared tracker race and silently drop rows. Subagents return their row; the orchestrator writes them serially in step 4.
 - **Don't scan `archive/` in step 1.** It reads `rec/` only. Pulling in archived transcripts reprocesses meetings that are already done.
@@ -230,5 +232,5 @@ A real transcript → summary pair lives in [`examples/`](./examples/).
 
 - **Runtime:** Claude Code · model `claude-opus-4-8`.
 - **Skill type:** prompt-driven workflow plus one bundled mechanical helper, `archive-old-recordings.py` (Step 0).
-- **Last validated:** 2026-06-13 — processed the fictional onboarding-sync transcript in `examples/` end to end (standard template, checkbox action items, `##`/`###` headings) and ran the `humanizer` pass on the result.
+- **Last validated:** 2026-06-13 — processed the fictional onboarding-sync transcript in `examples/` end to end (standard template, checkbox action items, `##`/`###` headings) and ran the optional `humanizer` pass on the result.
 - **Archive helper:** 2026-06-23 — verified on a scratch tree: correct month cutoff, idempotent no-op when nothing is old enough, rows and transcripts moved together, and the no-reprocessing invariant checked on exit.
