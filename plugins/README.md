@@ -1,13 +1,14 @@
 # Plugins
 
 Every plugin in the [ai-toolkit-public](../README.md) marketplace lives here, one directory each. A
-directory holds `.claude-plugin/plugin.json` and a `skills/<name>/SKILL.md`. Click any plugin below
-for its own README.
+directory holds `.claude-plugin/plugin.json` and usually a `skills/<name>/SKILL.md` (hook-only
+plugins like `session-cost-stamp` skip it). Click any plugin below for its own README.
 
 | Plugin | What it does | Source |
 | --- | --- | --- |
 | 🎙️ [`audio-transcription`](./audio-transcription) | `wav`/`mp3`/`m4a` → timestamped Markdown with Whisper (`mlx-whisper` on Apple Silicon, `openai-whisper` elsewhere). | Mine |
 | 📝 [`meeting-notes`](./meeting-notes) | Raw transcripts in `rec/` → readable meeting summaries, one isolated subagent per transcript. | Mine |
+| 🧾 [`session-cost-stamp`](./session-cost-stamp) | At session end, stamps worked-time, context %, and cost into the transcript as the session title (shows on `--resume`, persists in the file). Requires a statusLine that writes the stash. | Mine |
 
 ## Install
 
@@ -23,8 +24,10 @@ From inside Claude Code:
 ```
 plugins/<name>/
   .claude-plugin/plugin.json   # manifest (name, version, description, author)
-  skills/<name>/SKILL.md        # the skill itself
+  skills/<name>/SKILL.md        # the skill itself (absent in hook-only plugins)
   skills/<name>/scripts/        # bundled scripts (audio-transcription)
+  hooks/hooks.json               # lifecycle hooks (session-cost-stamp)
+  scripts/                       # hook + statusline scripts (session-cost-stamp)
 ```
 
 See the root [LICENSE](../LICENSE).

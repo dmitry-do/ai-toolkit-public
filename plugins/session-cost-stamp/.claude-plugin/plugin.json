@@ -1,0 +1,12 @@
+{
+  "name": "session-cost-stamp",
+  "version": "0.1.0",
+  "description": "At session end, stamp the session's worked-time, context %, and cost into the transcript as a native ai-title entry, so it shows on resume and persists in the file. The exact figures come from the statusLine (the only surface with cost/context), so a small statusLine stash snippet is a required prerequisite.",
+  "author": {
+    "name": "dmitry-do"
+  },
+  "homepage": "https://github.com/dmitry-do/ai-toolkit-public",
+  "repository": "https://github.com/dmitry-do/ai-toolkit-public",
+  "license": "MIT",
+  "keywords": ["claude-code", "statusline", "session", "cost", "context", "hooks", "transcript"]
+}
