@@ -1,9 +1,17 @@
-# Transcription evals
+# Evals
 
-Measures the `audio-transcription` plugin for **speed vs. quality** against a known
-ground-truth text, so we can compare transcription methods objectively.
+Two axes live here:
 
-There are two fixture sets: the War & Peace audiobook chapter below, and
+- **Accuracy** (the bulk of this README): WER harnesses measuring the `audio-transcription`
+  plugin for **speed vs. quality** against known ground-truth text, so transcription methods
+  compare objectively.
+- **Behavior**: `behavioral/` is an automated trigger-rate harness for the marketplace's
+  skills — does the right phrasing fire the skill, do near-misses hold (see
+  `behavioral/README.md`). Alongside it, `audio-transcription/` and `meeting-notes/` each
+  hold a manual `EVALS.md` with richer behavior scenarios (backend choice, refusals,
+  isolation, resume).
+
+The accuracy harness has two fixture sets: the War & Peace audiobook chapter below, and
 `librispeech/` — chapter-level LibriSpeech test-clean/test-other fixtures plus the
 Hugging Face `librispeech_asr_dummy` smoke set (see `librispeech/run_librispeech.py`
 and `librispeech/results.md`).
@@ -33,6 +41,10 @@ warandpeace/
   audio/            wap_v1_p1_ch1.mp3 (full), wap_v1_p1_ch1_clip.mp3 (~90s, fast iteration)
   reference/        cleaned Dole text (full + clip) and build_reference.py
   transcripts/      generated outputs (gitignored; regenerate via run.py)
+librispeech/        chapter-level LibriSpeech fixtures, runner, and its own results.md
+behavioral/         automated trigger-rate harness (scenarios + claude -p responder)
+audio-transcription/, meeting-notes/
+                    manual EVALS.md behavior scenarios, one per plugin
 ```
 
 ## How to use

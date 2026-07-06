@@ -1,0 +1,31 @@
+{
+  "skill": "audio-transcription",
+  "description": "Transcribe wav/mp3/m4a recordings into timestamped Markdown with Whisper.",
+  "source": "evals/audio-transcription/EVALS.md",
+  "triggers": {
+    "should_fire": [
+      "transcribe this voice memo",
+      "what does this recording say?",
+      "turn my interview.m4a into text",
+      "clean up this librivox rip into markdown",
+      "I've got a 2-hour podcast, get me a transcript",
+      "write out what's in meeting.mp3",
+      "make timestamped notes from this lecture audio",
+      "can you caption this wav file",
+      "get the words out of this phone call recording",
+      "transcribe the conference session"
+    ],
+    "should_not_fire": [
+      "summarize this meeting",
+      "convert this mp3 to wav",
+      "generate a voiceover for this script",
+      "diarize these speakers",
+      "what format is this audio file?",
+      "translate this English paragraph to Spanish",
+      "remove background noise from this recording",
+      "trim the first 30 seconds off this mp3",
+      "write me a podcast intro",
+      "play this song for me"
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "skill": "meeting-notes",
+  "description": "Process meeting transcripts from rec/ into professional markdown summaries, one isolated subagent per transcript.",
+  "source": "evals/meeting-notes/EVALS.md",
+  "triggers": {
+    "should_fire": [
+      "process the recordings in rec/",
+      "generate meeting notes",
+      "/meeting-notes",
+      "summarize the meetings in my rec folder",
+      "turn these meeting transcripts into notes",
+      "I dropped three transcripts in rec/, write them up",
+      "process the new interview transcripts",
+      "clean up the standup transcripts into summaries",
+      "make notes from yesterday's call transcript in rec/",
+      "pull the action items out of the meeting transcripts"
+    ],
+    "should_not_fire": [
+      "transcribe this meeting recording",
+      "summarize this article for me",
+      "take notes while I talk",
+      "schedule a sync for next week",
+      "what did we decide in the meeting?",
+      "draft an agenda for tomorrow's standup",
+      "translate this document into English",
+      "summarize this paragraph I just pasted",
+      "record this call",
+      "find the recording of last week's meeting"
+    ]
+  }
+}

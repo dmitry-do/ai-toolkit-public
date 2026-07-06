@@ -22,5 +22,9 @@ evals/LibriSpeech_other/
 evals/librispeech/work/
 evals/librispeech/transcripts/
 
+# Dated trigger-run JSON (regenerable via evals/behavioral/run_behavioral.py --run;
+# the Results table in evals/behavioral/README.md holds the numbers worth keeping)
+evals/behavioral/results/
+
 # skill packaging output (regenerate via scripts/package-skill.sh)
 /dist/

@@ -23,7 +23,7 @@ Each plugin has its own `README.md`; [`plugins/`](./plugins) has an index.
 
 ## Evals
 
-[`evals/`](./evals) holds the speed-vs-quality harness for `audio-transcription`, with reproducible WER numbers and a public-domain LibriVox *War & Peace* fixture. See [`evals/README.md`](./evals/README.md).
+[`evals/`](./evals) holds the speed-vs-quality harness for `audio-transcription`, with reproducible WER numbers and a public-domain LibriVox *War & Peace* fixture, plus a behavioral trigger-rate harness for the skills (does the right phrasing fire them, do near-misses hold). See [`evals/README.md`](./evals/README.md).
 
 ## License
 
