@@ -7,9 +7,9 @@ Two axes live here:
   compare objectively.
 - **Behavior**: `behavioral/` is an automated trigger-rate harness for the marketplace's
   skills — does the right phrasing fire the skill, do near-misses hold (see
-  `behavioral/README.md`). Alongside it, `audio-transcription/` and `meeting-notes/` each
-  hold a manual `EVALS.md` with richer behavior scenarios (backend choice, refusals,
-  isolation, resume).
+  `behavioral/README.md`). Alongside it, `audio-transcription/`, `meeting-notes/`, and
+  `trip-plan/` each hold a manual `EVALS.md` with richer behavior scenarios (backend choice,
+  refusals, isolation, sequencing, privacy gating).
 
 The accuracy harness has two fixture sets: the War & Peace audiobook chapter below, and
 `librispeech/` — chapter-level LibriSpeech test-clean/test-other fixtures plus the
@@ -43,7 +43,7 @@ warandpeace/
   transcripts/      generated outputs (gitignored; regenerate via run.py)
 librispeech/        chapter-level LibriSpeech fixtures, runner, and its own results.md
 behavioral/         automated trigger-rate harness (scenarios + claude -p responder)
-audio-transcription/, meeting-notes/
+audio-transcription/, meeting-notes/, trip-plan/
                     manual EVALS.md behavior scenarios, one per plugin
 ```
 

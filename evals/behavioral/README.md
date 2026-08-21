@@ -57,6 +57,7 @@ frontmatter changes, sync the snapshot or the measurement drifts from what ships
 | --- | --- | --- | --- | --- | --- |
 | 2026-07-06 | haiku | audio-transcription | 100% (10/10) | 0% (0/10) | 1.00 |
 | 2026-07-06 | haiku | meeting-notes | 100% (10/10) | 0% (0/10) | 1.00 |
+| 2026-08-21 | haiku | trip-plan | 100% (10/10) | 0% (0/10) | 1.00 |
 
 A clean sweep on the current descriptions. The should-not sets hold the judge honest
 (mp3→wav conversion, diarization, voiceover generation all correctly refused), but a

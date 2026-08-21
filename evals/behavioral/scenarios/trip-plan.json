@@ -1,0 +1,31 @@
+{
+  "skill": "trip-plan",
+  "description": "Build, review, or publish a travel itinerary. Use when the user asks to create a day trip or multi-day itinerary, wants an existing plan reviewed, reordered or updated, or wants a trip plan turned into an installable offline app for their phone. Trigger this whenever a request involves sequencing places to visit across days, planning stops around opening hours and travel time, or shipping an itinerary as a file or a published page, even if the user never says the word \"itinerary\". Always trigger this skill when a trip, travel or itinerary request mentions a PWA, Cloudflare Drop, an installable or offline app, a home-screen app, or publishing a plan to a link, because this skill owns that build and deploy path. Itineraries it produces carry locations, times and prices only, never booking references, access codes or personal data.",
+  "source": "evals/trip-plan/EVALS.md",
+  "triggers": {
+    "should_fire": [
+      "plan me three days in Osaka in late November",
+      "we land at 14:00 on the 26th and leave the 30th, what should we do?",
+      "here's my Tokyo plan, does the order make sense?",
+      "review my road trip plan and be honest about what to cut",
+      "sequence these twelve places across four days",
+      "day two feels like a lot of backtracking, can you reorder it?",
+      "turn this itinerary into an app I can put on my phone",
+      "make this trip plan work offline in the mountains",
+      "publish the plan to a link I can send my partner",
+      "day trip from Vienna, balanced pace, good coffee"
+    ],
+    "should_not_fire": [
+      "book me a flight to Osaka",
+      "what's the weather in Kyoto next week?",
+      "how do I get from Namba to Umeda?",
+      "translate this restaurant menu",
+      "convert 40,000 yen to euros",
+      "plan my sprint for next week",
+      "build me a PWA for my todo list",
+      "what's a good camera for travel photography?",
+      "summarize this hotel's cancellation policy",
+      "deploy this site to Cloudflare"
+    ]
+  }
+}
