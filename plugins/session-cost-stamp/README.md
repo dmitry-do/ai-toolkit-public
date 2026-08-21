@@ -56,7 +56,72 @@ Where `used_pct` / `cost_raw` come from the statusLine JSON on stdin:
 
 No stash → the hook exits quietly and nothing is stamped.
 
+## How to use
+
+### 1. Install, then reload
+
+```
+/plugin install session-cost-stamp@ai-toolkit-public
+/reload-plugins
+```
+
+Hooks only take effect after a reload. Skipping this is the most common reason nothing gets
+stamped.
+
+### 2. Wire the statusLine stash
+
+Pick option A or B from the section above. Then confirm the statusLine renders and writes:
+
+```console
+$ bash ~/.claude/statusline.sh <<< "$STATUSLINE_JSON"
+ai-toolkit  main  •  40% context  •  $26.24
+```
+
+### 3. Check the stash actually exists
+
+This is the whole dependency. If this file isn't there, nothing downstream can work:
+
+```console
+$ cat ~/.claude/session-stats/$SESSION_ID
+40.2       # context used, %
+26.2431    # total cost, USD
+266000     # duration, ms
+```
+
+No file means your statusLine isn't writing it — go back to step 2. The hook exits quietly in that
+case rather than stamping a half-empty title.
+
+### 4. End the session
+
+`/clear`, exit, or log out. The `SessionEnd` hook fires, reads the stash, and appends one entry:
+
+```console
+$ tail -1 "$TRANSCRIPT"
+{"type":"ai-title","aiTitle":"Remove AI blocks on .NET pages (worked 4m 26s, context: 40%, cost: $26.24)","sessionId":"…"}
+```
+
+```console
+$ ls ~/.claude/session-stats/$SESSION_ID
+ls: No such file or directory
+```
+
+The stash is consumed, so the same numbers can't be counted twice.
+
+### 5. See it where it's useful
+
+That title is what the sessions list and `claude --resume` now show, and it stays in the transcript
+file permanently:
+
+```
+Remove AI blocks on .NET pages (worked 4m 26s, context: 40%, cost: $26.24)
+```
+
+Re-stamping replaces the bracket rather than compounding it, so a session that ends twice doesn't
+end up with two.
+
 ## How it works
+
+![How session-cost-stamp works](./docs/how-it-works.png)
 
 1. On every render, your **statusLine** writes `~/.claude/session-stats/<session_id>` with the
    latest context % / cost / duration (the exact UI figures).
@@ -71,6 +136,13 @@ No stash → the hook exits quietly and nothing is stamped.
 Fires on every session end (`/clear`, logout, exit) with the last figures the statusLine rendered
 (≈ final totals). The `$` and context % match the Claude Code UI exactly, because they *are* the
 UI's values — the statusLine hands them over pre-computed.
+
+## Demo
+
+The statusLine rendering and stashing, the stash contents, the hook consuming it at session end,
+and the title that comes out.
+
+![session-cost-stamp demo](./docs/demo.gif)
 
 ## Requirements
 

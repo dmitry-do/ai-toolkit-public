@@ -2,14 +2,14 @@
 
 Every plugin in the [ai-toolkit-public](../README.md) marketplace lives here, one directory each. A
 directory holds `.claude-plugin/plugin.json` and usually a `skills/<name>/SKILL.md` (hook-only
-plugins like `session-cost-stamp` skip it). Click any plugin below for its own README.
+plugins skip it). Click any plugin below for its own README.
 
 | Plugin | What it does | Source |
 | --- | --- | --- |
+| 🗺️ [`trip-plan`](./trip-plan) | Itineraries sequenced around opening hours, travel time and anchors → self-contained HTML + installable PWA. Blocks the build on booking codes or personal data. | Mine |
 | 🎙️ [`audio-transcription`](./audio-transcription) | `wav`/`mp3`/`m4a` → timestamped Markdown with Whisper (`mlx-whisper` on Apple Silicon, `openai-whisper` elsewhere). | Mine |
 | 📝 [`meeting-notes`](./meeting-notes) | Raw transcripts in `rec/` → readable meeting summaries, one isolated subagent per transcript. | Mine |
 | 🧾 [`session-cost-stamp`](./session-cost-stamp) | At session end, stamps worked-time, context %, and cost into the transcript as the session title (shows on `--resume`, persists in the file). Requires a statusLine that writes the stash. | Mine |
-| 🗺️ [`trip-plan`](./trip-plan) | Itineraries sequenced around opening hours, travel time and anchors → self-contained HTML + installable PWA. Blocks the build on booking codes or personal data. | Mine |
 
 ## Install
 
@@ -30,6 +30,12 @@ plugins/<name>/
   skills/<name>/reference/       # reference docs (trip-plan)
   hooks/hooks.json               # lifecycle hooks (session-cost-stamp)
   scripts/                       # hook + statusline scripts (session-cost-stamp)
+  docs/                          # how-it-works.png + demo.gif, shown in the plugin README
 ```
+
+Every plugin README has the same three sections: **How to use** (step by step, with the real input
+and the real output), **How it works** (a diagram of the moving parts), and **Demo** (those steps
+running). Both images are generated — regenerate them with
+[`scripts/docs-assets/build.py`](../scripts/docs-assets/README.md).
 
 See the root [LICENSE](../LICENSE).

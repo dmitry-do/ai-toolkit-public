@@ -1,6 +1,6 @@
 # 🧰 ai-toolkit-public
 
-A curated public subset of my Claude Code plugins: audio transcription, meeting notes, trip planning, and a session-cost stamp — plus the eval harness behind the transcription work.
+A curated public subset of my Claude Code plugins: trip planning, audio transcription, meeting notes, and a session-cost stamp — plus the eval harness behind the transcription work.
 
 ## Install
 
@@ -15,12 +15,18 @@ Inside Claude Code:
 
 | Plugin | What it does | Source |
 | --- | --- | --- |
+| 🗺️ [`trip-plan`](./plugins/trip-plan) | Plans a trip, reviews one you already have, then ships it as an offline HTML file and an installable home-screen app. Refuses to build if booking codes or personal details are still in the file. | Mine |
 | 🎙️ [`audio-transcription`](./plugins/audio-transcription) | Turns `wav`/`mp3`/`m4a` recordings into timestamped Markdown with Whisper. Uses `mlx-whisper` on Apple Silicon, `openai-whisper` everywhere else. | Mine |
 | 📝 [`meeting-notes`](./plugins/meeting-notes) | Cleans raw transcripts in `rec/` into meeting summaries you can actually read. | Mine |
 | 🧾 [`session-cost-stamp`](./plugins/session-cost-stamp) | At session end, stamps the session's worked-time, context %, and cost into the transcript as its title, so it shows on `--resume`. Needs a statusLine that writes the stash. | Mine |
-| 🗺️ [`trip-plan`](./plugins/trip-plan) | Plans a trip, reviews one you already have, then ships it as an offline HTML file and an installable home-screen app. Refuses to build if booking codes or personal details are still in the file. | Mine |
 
-Each plugin has its own `README.md`; [`plugins/`](./plugins) has an index.
+Every plugin README has the same three sections: **How to use** (step by step, with the real input and the real output), **How it works** (a diagram of the moving parts), and **Demo** (those steps running). [`plugins/`](./plugins) has the index.
+
+### trip-plan, in one picture
+
+![How trip-plan works](./plugins/trip-plan/docs/how-it-works.png)
+
+Three phases — draft an itinerary, audit one that already exists, or ship the locked plan as a file and an installable app. The day is checked arithmetically rather than by eye (closing days, late arrivals, anchor buffers, overflow), and the build refuses to produce a file that still carries booking codes or personal data. [Read more →](./plugins/trip-plan)
 
 ## Evals
 
