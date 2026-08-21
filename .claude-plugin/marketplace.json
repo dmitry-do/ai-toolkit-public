@@ -5,7 +5,7 @@
     "url": "https://github.com/dmitry-do"
   },
   "metadata": {
-    "description": "A curated public subset of Claude Code plugins: audio transcription, meeting notes, and a session-cost stamp, plus the audio-transcription eval harness.",
+    "description": "A curated public subset of Claude Code plugins: audio transcription, meeting notes, trip planning, and a session-cost stamp, plus the audio-transcription eval harness.",
     "version": "0.1.0"
   },
   "plugins": [
@@ -32,6 +32,14 @@
       "version": "0.1.0",
       "category": "productivity",
       "keywords": ["claude-code", "statusline", "session", "cost", "context", "hooks", "transcript"]
+    },
+    {
+      "name": "trip-plan",
+      "source": "./plugins/trip-plan",
+      "description": "Plan, review, and ship travel itineraries: sequence stops around opening hours and travel time, audit an existing plan, then publish it as a self-contained HTML file and an installable offline PWA.",
+      "version": "0.1.0",
+      "category": "travel",
+      "keywords": ["travel", "itinerary", "trip", "planning", "pwa"]
     }
   ]
 }

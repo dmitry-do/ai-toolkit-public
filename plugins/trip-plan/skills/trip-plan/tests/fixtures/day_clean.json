@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-27",
+  "title": "Osaka, north to south",
+  "home_base": [34.7025, 135.4959],
+  "day_start": "08:30",
+  "day_end": "21:30",
+  "stops": [
+    {"name": "Mel Coffee Roasters", "at": "09:00", "dwell": 40,
+     "coords": [34.6813, 135.5006], "hours": "08:00-18:00", "closed": ["Wed"]},
+    {"name": "Nakanoshima Museum", "at": "10:15", "dwell": 90,
+     "coords": [34.6923, 135.4917], "hours": "10:00-17:00", "closed": ["Mon"]},
+    {"name": "Amerikamura record dig", "at": "12:30", "dwell": 75,
+     "coords": [34.6717, 135.4977], "hours": "11:00-20:00"},
+    {"name": "Kuromon Ichiba lunch", "at": "14:20", "dwell": 60,
+     "coords": [34.6654, 135.5063], "hours": "09:00-18:00"},
+    {"name": "Tsutenkaku and Shinsekai", "at": "16:00", "dwell": 90,
+     "coords": [34.6524, 135.5063], "hours": "10:00-20:00", "anchor": false}
+  ]
+}
