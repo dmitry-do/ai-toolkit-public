@@ -49,9 +49,10 @@ with a manifest, a service worker and icons, zipped as `dist.zip`. On a home scr
 screen with no browser chrome, works with no signal, opens on today's card, and folds away the stops
 you've already walked past.
 
-The week in that screenshot is real and it's in the repo:
-[`examples/`](./skills/trip-plan/examples/) holds the Markdown, the `route_check.py` JSON for all
-seven days, and the built HTML the phone is showing.
+The week in that screenshot is a real plan rather than a mockup. The Markdown, the
+`route_check.py` JSON for all seven days, and the built HTML the phone is showing are in
+[`scripts/docs-assets/samples/`](../../scripts/docs-assets/samples/) — outside the plugin, because
+nothing at runtime reads them — and the checker passes clean on it.
 
 ## 📦 Install in Claude Code
 
@@ -277,7 +278,6 @@ plugins/trip-plan/
 ├── docs/                           # the diagram, demo GIF and screenshot used above
 └── skills/trip-plan/
     ├── SKILL.md                    # sequencing rules, review mode, the privacy rule
-    ├── examples/                   # a worked week: Markdown, route_check JSON, built HTML
     ├── reference/
     │   ├── deliver.md              # HTML build, PWA packaging, Cloudflare Drop deploy
     │   └── style.md                # visual direction for the itinerary page

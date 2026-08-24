@@ -33,6 +33,7 @@ redrawing it.
 | `spec_diagrams.py` | One function per plugin — the diagram content. |
 | `spec_demos.py` | One function per plugin — the demo script. |
 | `shots.py` | Screenshots. Renders real files in headless Chrome and composes the captures with Pillow. Separate entry point because it needs Chrome. |
+| `samples/` | The trip-plan week the screenshot is of. Generator input, not part of any plugin. |
 
 ## Conventions
 
@@ -46,9 +47,13 @@ redrawing it.
   macOS system interpreter, with no third-party drawing tools installed. `shots.py` adds one
   dependency, Google Chrome, because a screenshot of a real page needs a real browser.
 - **The screenshots are of the committed files.** `shots.py` photographs
-  `plugins/trip-plan/skills/trip-plan/examples/` and
-  `plugins/meeting-notes/skills/meeting-notes/examples/` as they are on disk. It stages two things
+  [`samples/`](./samples/) and `plugins/meeting-notes/skills/meeting-notes/examples/` as they are
+  on disk. The trip-plan sample sits in `samples/` rather than in the plugin, because a file that
+  only the docs read shouldn't install with the plugin or upload with the skill. It stages two things
   in a throwaway copy — it pins the clock, so the itinerary shows a day mid-trip rather than a trip
   that hasn't started, and it re-applies the page's own light palette, because Chrome inherits
   macOS dark mode. Nothing else is changed, and the committed file is never touched.
-- Assets are ~100–160 KB each; the full set is about 2 MB.
+- **Screenshots ship at 2×, diagrams and demos at 1×.** The diagrams are supersampled line art, so
+  downsampling them is what makes the edges clean. A screenshot is already-antialiased browser text,
+  and downsampling that just blurs it, so `shots.py` keeps the full 2× canvas.
+- Diagrams and demos are ~100–160 KB each; the two screenshots are ~400 KB each at 2×.

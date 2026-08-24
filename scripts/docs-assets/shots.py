@@ -19,6 +19,9 @@ Two things are staged for the camera, both in a throwaway copy of the file:
   page's own first `:root` block) is re-appended to win the cascade.
 
 Nothing else is touched, and the committed file is never modified.
+
+The trip-plan sample lives in `samples/` beside this file rather than inside the
+plugin, so it doesn't install with the plugin or upload with the skill.
 """
 from __future__ import annotations
 
@@ -42,6 +45,7 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 PLUGINS = ROOT / "plugins"
+SAMPLES = HERE / "samples"   # generator input, deliberately outside the plugins
 
 INDIGO = "#33418F"   # the itinerary's own accent, so the pane matches the phone
 
@@ -287,7 +291,11 @@ class Sheet:
                        fill=colour)
 
     def save(self, path):
-        self.img.resize((self.w, self.h), Image.LANCZOS).save(path, optimize=True)
+        # Kept at SCALE, not resized down: every capture in here is taken at the
+        # same device pixel ratio, so downsampling would blur browser-rendered
+        # text that is already antialiased. GitHub scales it to the column width
+        # and the extra pixels are what stay crisp on a retina screen.
+        self.img.save(path, optimize=True)
         return path
 
 
@@ -295,7 +303,7 @@ class Sheet:
 
 def trip_plan():
     """The Markdown plan beside the app that gets built out of it."""
-    ex = PLUGINS / "trip-plan" / "skills" / "trip-plan" / "examples"
+    ex = SAMPLES
     # Midday on the 24th: three stops already done, so the shot carries the
     # TODAY tag, the folded past rows and the marker on the next stop at once.
     staged = stage_itinerary(ex / "tokyo-2026-12.html", when=(2026, 12, 24, 12, 0))
