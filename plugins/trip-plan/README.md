@@ -67,12 +67,14 @@ sequenced by the rules above, `route_check.py` clean on every one of them, and
 
 ## 🌐 Install in Claude Web
 
-All three phases work on claude.ai. The scripts are stdlib-only Python 3, so `route_check.py`,
-`scrub_check.py` and `build_pwa.py` run there too; the build hands you `dist.zip` as a download
-instead of writing a folder to disk. Publishing is the one real difference. In Claude Code the
-skill deploys the folder for you with Wrangler and reads the URL back; on claude.ai there's no
-terminal, so it hands you the zip and you drop it at
-[Cloudflare Drop](https://www.cloudflare.com/drop/) yourself, which takes about ten seconds.
+All three phases work on claude.ai, the build and the deploy included. The scripts are
+stdlib-only Python 3, so `route_check.py`, `scrub_check.py` and `build_pwa.py` run in Claude Web's
+container the same as in Claude Code, producing `dist/` and `dist.zip`. Publishing runs there too:
+wherever a shell can run Wrangler — Claude Code or Claude Web's container — the skill deploys the
+built folder and reads the live URL back. Handing you `dist.zip` to upload at
+[Cloudflare Drop](https://www.cloudflare.com/drop/) yourself is the fallback, used only when
+there's no shell to run Wrangler or the sandbox blocks outbound traffic to Cloudflare — about ten
+seconds either way.
 
 Package the skill folder:
 
@@ -237,8 +239,8 @@ Zipped: dist.zip (11388 bytes, files at zip root)
 Deploy this directory or the zip. index.html sits at the root, as Drop expects.
 ```
 
-In Claude Code the skill publishes it for you, because Wrangler deploys a folder without needing a
-Cloudflare account:
+Wherever a shell can run Wrangler — Claude Code, or Claude Web's container — the skill publishes it
+for you, since Wrangler deploys a folder without needing a Cloudflare account:
 
 ```bash
 npm exec --yes wrangler@latest -- deploy ./dist \
@@ -246,9 +248,9 @@ npm exec --yes wrangler@latest -- deploy ./dist \
 ```
 
 You get a live `workers.dev` URL and a claim URL. The claim URL expires in an hour and grants
-ownership of the deployment, so it isn't for sharing. With no terminal — on claude.ai — drag
-`dist.zip` onto [Cloudflare Drop](https://www.cloudflare.com/drop/) instead: about ten seconds, same
-result.
+ownership of the deployment, so it isn't for sharing. When no shell is available, or the sandbox
+blocks Cloudflare, the skill hands you `dist.zip` to drop onto
+[Cloudflare Drop](https://www.cloudflare.com/drop/) instead: about ten seconds, same result.
 
 Either way it installs to a home screen. Today's day-card opens on load; stops already past fold
 away.
