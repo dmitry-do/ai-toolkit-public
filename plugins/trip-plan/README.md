@@ -1,57 +1,62 @@
 # 🗺️ trip-plan
 
-Four days, a list of places, and no idea what order they go in — and two of them are shut on the
-day you planned to go. trip-plan sequences the days around opening hours, travel time and fixed
-bookings, audits a plan you already have, and ships the result twice: a Markdown plan you can edit,
-and an installable app that sits on the home screen and works with no signal.
+trip-plan turns a list of places and dates into a day-by-day itinerary, ordered around
+opening hours, travel time, and fixed bookings. It can also audit a plan you already have,
+and it ships the result two ways: a Markdown plan you can edit, and an installable app that
+lives on your home screen and works with no signal.
+
+## 🎬 Demo
+
+A broken day caught by the checker, the reorder that fixes it, the privacy scan blocking a
+build, and the same build succeeding once the codes are gone. Walked through step by step in
+[How to use](#how-to-use).
+
+![trip-plan demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-demo.gif)
 
 ## ⚙️ How it works
 
 ![How trip-plan works](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-how-it-works.png)
 
-Three phases that don't chain — the skill enters at whichever one the request asks for.
+The skill has three phases — create, review, and deliver. On a new trip they run in that
+order, but each one also stands on its own, so the skill enters at whichever the request
+asks for: draft a plan, audit a plan you already wrote, or build an existing plan into a
+file and an app.
 
-**Create** works in layers because each one constrains the next. Anchors (timed tickets, trains,
-sunset, weekly closing days) can't move, so they go first; clusters get assigned to dates around
-them; walking order is decided inside a cluster; dwell time is set last, and when a cluster doesn't
-fit, a stop gets cut rather than everything compressed by 20%. Checking closing days *before*
-assigning a stop to a date is the single most common way an otherwise good plan breaks.
+**Create builds the itinerary in layers, because each layer constrains the next.** Fixed
+anchors go first (timed tickets, trains, sunset, weekly closing days), since they can't
+move. Stops are then clustered by neighbourhood and assigned to dates around those anchors;
+inside a cluster they're ordered by walking distance; dwell time is set last. When a cluster
+doesn't fit the day, a stop is cut rather than compressing everything by 20%. Checking a
+stop's closing day before you assign it to a date is the single most common fix for a plan
+that otherwise looks fine.
 
-**`route_check.py`** exists because "this day looks tight" and "you arrive 27 minutes after your
-dinner reservation" are different statements, and only one of them is checkable. It's geometry and
-arithmetic — closing days, arrival times, anchor buffers, overflow, zig-zags — so it catches what
-the eye doesn't. Its zig-zag suggestion is geometry alone, which is why the advice is to re-run the
-check on any reordering: the shorter route often lands a museum after closing time.
+**`route_check.py` turns "this day looks tight" into an arithmetic answer.** It runs geometry
+and arithmetic over the day — closing days, arrival times, anchor buffers, day overflow,
+zig-zags — so it catches what the eye misses. Its zig-zag suggestion is geometry alone, so
+re-run the check after any reorder: the shorter route often lands a museum after it closes.
 
-**`scrub_check.py`** is a build step rather than a promise, because the file gets emailed, synced,
-left open on a train table and published to a URL. It blocks on a keyword sitting next to something
-value-shaped, which is what lets `code in your password manager` through and stops `door code 4829`.
-`build_pwa.py` runs it first and refuses to build a leaky file — and the report masks the value it
-found, so the scan output is itself safe to paste.
-
-## 🎬 Demo
-
-A broken day caught by the checker, the reorder that fixes it, the privacy scan blocking a build,
-and the same build succeeding once the codes are gone. Walked through step by step in
-[How to use](#how-to-use).
-
-![trip-plan demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-demo.gif)
+**`scrub_check.py` keeps private data out of a file that gets shared.** The plan is emailed,
+synced, left open on a train table, and published to a URL, so it can't carry booking
+references, door codes, or personal numbers. The scanner blocks on a keyword sitting next to
+a value, which passes `code in your password manager` and stops `door code 4829`.
+`build_pwa.py` runs it first and refuses to build a leaky file, and the report masks the
+value it found, so the scan output is itself safe to paste.
 
 ## 📱 What you get: Markdown, then an app
 
 ![The Markdown plan, and the app built from it](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-itinerary.png)
 
-Two artifacts out of one plan. **The Markdown** is the one you argue with: a section per day, each
-opening with the constraint that set the order, so the reasoning is editable rather than buried.
-**The app** is that same plan built into a
-[Progressive Web App](https://web.dev/articles/what-are-pwas) — one self-contained HTML file wrapped
-with a manifest, a service worker and icons, zipped as `dist.zip`. On a home screen it opens full
-screen with no browser chrome, works with no signal, opens on today's card, and folds away the stops
-you've already walked past.
+One plan, two artifacts. **The Markdown** is the version you edit: a section per day, each
+opening with the constraint that set the order, so the reasoning is on the page rather than
+buried. **The app** is that same plan built into a
+[Progressive Web App](https://web.dev/articles/what-are-pwas) — one self-contained HTML file
+wrapped with a manifest, a service worker, and icons, zipped as `dist.zip`. Installed to a
+home screen it opens full screen with no browser chrome, works offline, opens on today's
+card, and folds away the stops you've already passed.
 
-That week is a plan the skill's own tools produced and passed, not a mockup: seven days sequenced
-by the rules above, `route_check.py` clean on every one of them, and `scrub_check.py` clean on the
-HTML the phone is showing.
+That week is a real plan the skill's own tools produced and passed, not a mockup: seven days
+sequenced by the rules above, `route_check.py` clean on every one of them, and
+`scrub_check.py` clean on the HTML the phone is showing.
 
 ## 📦 Install in Claude Code
 
@@ -63,11 +68,11 @@ HTML the phone is showing.
 ## 🌐 Install in Claude Web
 
 All three phases work on claude.ai. The scripts are stdlib-only Python 3, so `route_check.py`,
-`scrub_check.py` and `build_pwa.py` run there too — the build hands you `dist.zip` as a download
-instead of writing a folder to your disk. Publishing is the one real difference: in Claude Code the
-skill deploys the folder for you with Wrangler and reads the URL back, while on claude.ai there's no
+`scrub_check.py` and `build_pwa.py` run there too; the build hands you `dist.zip` as a download
+instead of writing a folder to disk. Publishing is the one real difference. In Claude Code the
+skill deploys the folder for you with Wrangler and reads the URL back; on claude.ai there's no
 terminal, so it hands you the zip and you drop it at
-[Cloudflare Drop](https://www.cloudflare.com/drop/) yourself. That takes about ten seconds.
+[Cloudflare Drop](https://www.cloudflare.com/drop/) yourself, which takes about ten seconds.
 
 Package the skill folder:
 
@@ -81,32 +86,34 @@ Then in claude.ai: **Customize → Skills → Add → Create skill → Upload a 
 
 Three phases, and the skill picks the one the request asks for:
 
-- **Create** — drafts a day-by-day itinerary as Markdown you can edit. Anchors first (timed tickets, trains, sunset, weekly
-  closures), then stops clustered by neighbourhood, then ordered by walking distance inside each
-  cluster, with an honest dwell time on every stop. Each day opens with a one-line *why this order*
-  so the reasoning is arguable, not just the output.
-- **Review** — audits an existing plan against the same rules and says plainly what's broken: a
-  stop sitting on its closing day, a day that crosses the city four times, a dinner you arrive at
-  27 minutes late. Cuts are ranked by regret rather than softened.
-- **Deliver** — the locked Markdown becomes one self-contained HTML file (opens offline from Files,
-  no server), then the same file wrapped as an installable
-  [PWA](https://web.dev/articles/what-are-pwas) with a manifest, service worker, and icons, zipped
-  as `dist.zip`. Today's day-card opens on load; stops already past fold away.
+- **Create** — drafts a day-by-day itinerary as Markdown you can edit. Anchors first (timed
+  tickets, trains, sunset, weekly closures), then stops clustered by neighbourhood, then
+  ordered by walking distance inside each cluster, with an honest dwell time on every stop.
+  Each day opens with a one-line *why this order* so the reasoning is arguable, not just the
+  output.
+- **Review** — audits an existing plan against the same rules and says plainly what's broken:
+  a stop sitting on its closing day, a day that crosses the city four times, a dinner you
+  arrive at 27 minutes late. Cuts are ranked by regret rather than softened.
+- **Deliver** — the locked Markdown becomes one self-contained HTML file (opens offline from
+  Files, no server), then the same file wrapped as an installable
+  [PWA](https://web.dev/articles/what-are-pwas) with a manifest, service worker, and icons,
+  zipped as `dist.zip`. Today's day-card opens on load; stops already past fold away.
 
 ## 🔒 Privacy is a build step, not a promise
 
-The plan carries locations, times, prices, and ratings. It never carries booking references, door
-codes, passport numbers, card numbers, or personal contact details — because the file gets emailed,
-synced, left open on a train table, and published to a URL anyone with the link can read.
+The plan carries locations, times, prices, and ratings. It never carries booking references,
+door codes, passport numbers, card numbers, or personal contact details, because the file
+gets emailed, synced, left open on a train table, and published to a URL anyone with the link
+can read.
 
-The rule is enforced rather than trusted: `build_pwa.py` runs `scrub_check.py` first and refuses to
+The rule is enforced, not trusted: `build_pwa.py` runs `scrub_check.py` first and refuses to
 build a leaky file. The scanner blocks on a keyword next to something value-shaped, so
 `code in your password manager` passes and `door code 4829` doesn't.
 
 ## 📖 How to use
 
-`SK="${CLAUDE_PLUGIN_ROOT}/skills/trip-plan"` in the commands below. The skill picks its phase from
-what you ask for — you don't select one.
+`SK="${CLAUDE_PLUGIN_ROOT}/skills/trip-plan"` in the commands below. The skill picks its phase
+from what you ask for; you don't select one.
 
 ### 1. Create: describe the trip
 

@@ -1,54 +1,54 @@
 # 📝 meeting-notes
 
-You get back from a week away with eleven transcripts in a folder and no memory of which ones
-you've already dealt with. meeting-notes works out what's new, gives each transcript its own
-isolated subagent, and writes one readable summary per meeting — TLDR, decisions, and action items
-with names and dates on them.
+meeting-notes turns a folder of meeting transcripts into one readable summary per meeting: a
+TLDR, the decisions, and action items with a name and a date on each. It works out which
+transcripts are new, gives each one its own isolated subagent, and runs them in parallel.
+
+## 🎬 Demo
+
+Finding the delta mechanically, the parallel subagents, the tell check coming back clean,
+stowing what's done, and the summary that fell out. Walked through step by step in
+[How to use](#how-to-use).
+
+![meeting-notes demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/meeting-notes-demo.gif)
 
 ## ⚙️ How it works
 
 ![How meeting-notes works](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/meeting-notes-how-it-works.png)
 
-Most of the design is about two failure modes that are invisible unless you look for them:
+Most of the design defends against two failure modes you won't see unless you look for them:
 
-- **Cross-contamination.** One context summarising six meetings blends them — a decision from
-  Tuesday shows up in Monday's notes. So each transcript gets its own subagent, and they run in
-  parallel because they're independent.
-- **The silent subagent.** A subagent's turn can end with no error, no `stop_reason` and its opening
-  line as the return value, after it read the transcript but before it wrote anything. Nothing about
-  that reads as a failure. **Step 2.5** reconciles reports against launched transcripts and checks
-  the summary files exist, and resumes anything that didn't finish. Without it, a meeting is dropped
-  for good, because Step 4 never writes a row.
+- **Cross-contamination.** One context summarising six meetings blends them: a decision from
+  Tuesday turns up in Monday's notes. So each transcript gets its own subagent, and since
+  they're independent, they run in parallel.
+- **The silent subagent.** A subagent's turn can end with no error and no `stop_reason`,
+  returning its opening line as the result, after it has read the transcript but before it
+  wrote anything. Nothing about that looks like a failure. **Step 2.5** reconciles the reports
+  against the transcripts that were launched, checks each summary file exists, and resumes
+  anything that didn't finish. Without it, a meeting is dropped for good, because Step 4 never
+  writes its row.
 
 Three more rules earn their place:
 
-- **The orchestrator alone writes `RECORDINGS.md`.** Parallel writes to one tracker race and
-  silently drop rows, so subagents return their row instead of writing it.
-- **Step 3 greps, it doesn't re-read.** The subagents already humanize as they write; the check is
-  mechanical over just the new files, and only files with hits escalate to
+- **Only the orchestrator writes `RECORDINGS.md`.** Parallel writes to one tracker race and
+  silently drop rows, so the subagents return their row and the orchestrator writes them all.
+- **Step 3 greps, it doesn't re-read.** The subagents already humanize as they write, so the
+  check is mechanical over just the new files, and only files with hits escalate to
   [`humanizer`](https://github.com/blader/humanizer). No output is the success case.
-- **Row first, stow second.** A transcript moved before its row exists would be in no ledger and no
-  scan path, and would never be seen again. The worst case in this order is a file that the next
-  run tidies up.
+- **Row first, stow second.** A transcript moved before its row exists would be in no ledger
+  and no scan path, and would never be seen again. Writing the row first means the worst case
+  is a file the next run tidies up.
 
 The reasoning in full, with anti-patterns and validation history, is in
 [`references/rationale.md`](./skills/meeting-notes/references/rationale.md).
-
-## 🎬 Demo
-
-Finding the delta mechanically, the parallel subagents, the tell check coming back clean, stowing
-what's done, and the summary that fell out. Walked through step by step in
-[How to use](#how-to-use).
-
-![meeting-notes demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/meeting-notes-demo.gif)
 
 ## 📄 Transcript in, summary out
 
 ![A transcript, and the summary written from it](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/meeting-notes-summary.png)
 
 Left is what the recorder hands you: timestamps, names, and a conversation nobody structured.
-Right is what lands in `summaries/` — a TLDR, the decisions as decisions, and action
-items with a name and a timeline on each. Both files are in the repo:
+Right is what lands in `summaries/`: a TLDR, the decisions as decisions, and action items with
+a name and a timeline on each. Both files are in the repo —
 [`examples/`](./skills/meeting-notes/examples/) holds the pair the screenshot is of.
 
 ## 📦 Install in Claude Code
@@ -60,7 +60,7 @@ items with a name and a timeline on each. Both files are in the repo:
 
 ## 🌐 Install in Claude Web
 
-Works on claude.ai over uploaded/pasted transcripts (no local `rec/` folder needed — see the
+Works on claude.ai over uploaded or pasted transcripts (no local `rec/` folder needed — see the
 "On Claude Web" note in the skill). Package the skill folder:
 
 ```bash

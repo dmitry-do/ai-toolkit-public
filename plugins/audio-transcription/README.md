@@ -1,38 +1,46 @@
 # 🎙️ audio-transcription
 
-An hour of recorded meeting, and the one thing you need is somewhere in the middle of it.
-audio-transcription turns `wav`, `mp3` and `m4a` — plus `mp4`, `m4v`, `mov`, `mkv` and `webm` —
-into timestamped Markdown you can search, on the Whisper backend your machine is actually fastest on:
-`mlx-whisper` on Apple Silicon, `openai-whisper` everywhere else.
+audio-transcription runs Whisper over your local audio and video files and hands back
+timestamped Markdown you can read and grep, so the two minutes you need out of an hour of
+recording become a search instead of a re-listen. It uses whichever Whisper build is
+fastest on your hardware: `mlx-whisper` on Apple Silicon, `openai-whisper` everywhere else.
+Audio formats are `wav`, `mp3` and `m4a`; video formats are `mp4`, `m4v`, `mov`, `mkv` and
+`webm`, with ffmpeg pulling the audio track.
+
+## 🎬 Demo
+
+One real run from start to finish: the dependency check, a plain-language request, 87
+seconds of audio transcribed in about 8, and the Markdown that came out. The same run is
+broken down in [How to use](#how-to-use).
+
+![audio-transcription demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/audio-transcription-demo.gif)
 
 ## ⚙️ How it works
 
 ![How audio-transcription works](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/audio-transcription-how-it-works.png)
 
-Whisper's failure modes are specific, and each block above exists to defeat one of them:
+Whisper fails in a handful of predictable ways, and each stage below exists to shut one of
+them down:
 
-- **Preflight** picks the backend for the platform rather than trusting a flag. On Apple Silicon the
-  script refuses `--backend whisper` outright, because it's slower *and* less accurate there.
-- **Segmenter** drops silences over 2 seconds (Whisper hallucinates "Thank you." into them), keeps
-  chunks at 45 seconds or more, and snaps every cut to a real pause so no word is split across a
-  boundary. At ~34s chunks that snap is worth 8.8% → 3.7% WER on `large-v3`.
-- **Decode loop** runs with `condition_on_previous_text` off, which is what stops Whisper falling
-  into minutes-long repetition loops, and it deliberately does *not* carry the previous chunk's text
-  across the cut — measured at ~75 words silently deleted when it did.
-- **Second pass** audits the transcript against the audio: re-transcribes voiced spans no segment
-  covers, deletes hallucinated overlays, and retries segments Whisper's own confidence signals
-  flag. It self-gates to near zero extra work on clean recordings.
-- **The sidecar** is written after every chunk and deleted on success, which is what makes an
-  interrupted run resumable with no extra flag.
+- **Preflight** reads the platform and picks the backend from it instead of trusting the
+  flag you passed. On Apple Silicon it refuses `--backend whisper` outright, because the
+  Torch build is both slower and less accurate there.
+- **Segmenter** keeps chunks at 45 seconds or longer, skips silences over about 2 seconds
+  (Whisper likes to hallucinate "Thank you." into them), and moves each cut onto a real
+  pause so no word is split down the middle. On `large-v3` at ~34s chunks, that snap alone
+  moves WER from 8.8% to 3.7%.
+- **Decode loop** runs with `condition_on_previous_text` off, which is what keeps Whisper
+  out of its minutes-long repetition loops. It also does not feed the previous chunk's
+  text across the cut; doing that silently dropped about 75 words in testing.
+- **Second pass** checks the finished transcript back against the audio. It re-transcribes
+  any voiced stretch no segment covers, removes hallucinated overlays, and re-runs the
+  segments Whisper's own confidence signals flag. On clean recordings it does almost
+  nothing.
+- **The sidecar** is rewritten after each chunk and deleted once the run succeeds, which
+  is what lets an interrupted job resume with no extra flag.
 
-Every number here comes from the harnesses in [`evals/`](../../evals), not from intuition.
-
-## 🎬 Demo
-
-A real run: the dependency check, the natural-language ask, 87 seconds of audio transcribed in 8,
-and the Markdown it produced. Walked through step by step in [How to use](#how-to-use).
-
-![audio-transcription demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/audio-transcription-demo.gif)
+Every number here comes out of the harnesses in [`evals/`](../../evals), not from
+intuition.
 
 ## 📦 Install in Claude Code
 
@@ -43,23 +51,26 @@ and the Markdown it produced. Walked through step by step in [How to use](#how-t
 
 ## 🌐 Claude Web
 
-Claude Code only — not available on claude.ai, because it needs local `mlx-whisper`/`ffmpeg` and
-reads audio files from your machine, neither of which the claude.ai sandbox provides.
+Claude Code only, not claude.ai. It needs local `mlx-whisper`/`ffmpeg` and reads audio
+files off your machine, and the claude.ai sandbox provides neither.
 
 ## 🧩 What it does
 
-- Transcribes a single file or a whole folder into Markdown with `[start-end] text` segments and a
-  `Source` block (filename, backend, model, detected language).
-- **Picks the right backend.** `mlx-whisper` on Apple Silicon (required there), `openai-whisper`
-  elsewhere, and an opt-in `faster-whisper` (beam search) for hard, noisy, accented audio.
-- **Survives long jobs.** Chunked transcription checkpoints the Markdown after every chunk and
-  auto-resumes from a sidecar if the run is interrupted.
-- **Defaults tuned for accuracy.** Silence skipping and boundary snapping are on by default; a
-  second pass repairs Whisper's silent deletions and hallucinated overlays. Repetition loops are
-  disabled at the source (`condition_on_previous_text` off).
+- Transcribes a single file or an entire folder into Markdown, with `[start-end] text`
+  segments under a `Source` block that records the filename, backend, model and detected
+  language.
+- **Picks the backend for you.** `mlx-whisper` on Apple Silicon (required there),
+  `openai-whisper` elsewhere, and an opt-in `faster-whisper` (beam search) for noisy,
+  accented or far-mic audio.
+- **Survives long jobs.** A chunked run rewrites the Markdown after every chunk and
+  resumes from a sidecar if the run is interrupted, no flag needed.
+- **Ships with the accuracy defaults on.** Silence skipping and boundary snapping are
+  enabled out of the box, the second pass repairs Whisper's silent deletions and
+  hallucinated overlays, and the repetition loops are disabled at the source
+  (`condition_on_previous_text` off).
 
-The numbers behind every default are measured — see [`evals/`](../../evals) and the "Tested with"
-stamp in the skill.
+The value behind each default is measured, not asserted — see [`evals/`](../../evals) and
+the "Tested with" stamp in the skill.
 
 ## 📖 How to use
 
@@ -79,15 +90,15 @@ ok       ffmpeg       required for decoding supported audio formats
 ok       mlx_whisper  required Apple Silicon backend
 ```
 
-Whatever is missing is named here. The skill asks before installing a package or pulling model
-weights, because both cross the network.
+Anything missing is named on its own line. The skill asks first before it installs a
+package or pulls model weights, since both go over the network.
 
 ### 2. Ask for the transcript
 
 > "transcribe wap_v1_p1_ch1_clip.mp3, turbo is fine" · "what does this voice memo say?"
 
-The skill detects the platform, picks the backend it's required to use there, and runs the bundled
-script. You can also run it yourself:
+The skill reads the platform, uses the backend it's required to use there, and runs the
+bundled script. You can also run it directly:
 
 ```bash
 python3 "$ROOT/scripts/transcribe_audio.py" wap_v1_p1_ch1_clip.mp3 \
@@ -101,13 +112,13 @@ Detected language: English
 wap_v1_p1_ch1_clip.md
 ```
 
-That run is real: 87 seconds of audio, 8 seconds of wall time end to end. Drop `--mlx-model` to get
-`large-v3`, the default and the more accurate of the two (3.17% vs 3.33% weighted WER, at ~2.3× the
-time).
+That run is real: 87 seconds of audio, 8 seconds of wall time end to end. Drop
+`--mlx-model` to fall back to `large-v3`, the default and the more accurate of the two
+(3.17% vs 3.33% weighted WER, at about 2.3× the time).
 
 ### 3. Read the output
 
-The Markdown lands next to the audio, same basename:
+The Markdown lands next to the audio under the same basename:
 
 ```markdown
 # War and Peace — Ch. 1 (clip)
@@ -127,14 +138,15 @@ The Markdown lands next to the audio, same basename:
 [00:19-00:24] WAR AND PEACE. By Leo Tolstoy. Translated by Nathan Haskell Doyle.
 ```
 
-The `Source` block records what produced the file, so a transcript is never ambiguous about which
-model made it.
+The `Source` block records what produced the file, so it's never ambiguous which model
+made a given transcript.
 
 ### 4. If the run dies, re-run the same command
 
-No flag, no cleanup. A chunked run writes `<output>.progress.json` after every chunk; re-running
-the identical command picks up from the last completed one. Change the audio, model, language or
-chunk plan and it starts fresh instead of stitching mismatched pieces together.
+No flag, no cleanup. A chunked run writes `<output>.progress.json` after every chunk, and
+re-running the identical command picks up from the last completed one. Change the audio,
+model, language or chunk plan and it starts over rather than stitching mismatched pieces
+together.
 
 ```bash
 python3 "$ROOT/scripts/transcribe_audio.py" long-interview.m4a     # crashed at chunk 6

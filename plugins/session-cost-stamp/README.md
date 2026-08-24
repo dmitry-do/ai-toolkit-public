@@ -1,8 +1,15 @@
 # 🧾 session-cost-stamp
 
-You finish a long session, close the terminal, and the only record of what it cost closes with it.
-session-cost-stamp writes the worked time, context % and dollar cost into the session's own title —
-so it shows in the sessions list, shows on `--resume`, and stays in the transcript file for good.
+When a session ends, the record of what it cost usually ends with it. session-cost-stamp writes
+the worked time, context % and dollar cost into the session's own title, so it shows in the
+sessions list, shows on `--resume`, and stays in the transcript file for good.
+
+## 🎬 Demo
+
+The statusLine rendering and stashing, the stash contents, the hook consuming it at session end,
+and the title that comes out. Walked through step by step in [How to use](#how-to-use).
+
+![session-cost-stamp demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/session-cost-stamp-demo.gif)
 
 ## ⚙️ How it works
 
@@ -12,22 +19,15 @@ so it shows in the sessions list, shows on `--resume`, and stays in the transcri
    latest context % / cost / duration (the exact UI figures).
 2. On session end, the **`SessionEnd` hook** reads that stash and appends a native
    `{ "type": "ai-title", "aiTitle": "...", "sessionId": "..." }` line to the transcript, with the
-   stats added in brackets. Because it's the same entry type Claude Code writes itself (~dozens per
-   session) and the loader takes the **last** `ai-title` as the title, it can't corrupt the JSONL
-   and it becomes the session's title.
-3. The stash file is deleted after stamping. Re-stamps **replace** the bracket rather than
+   stats in brackets. It's the same entry type Claude Code writes itself (dozens of times a
+   session), and the loader takes the **last** `ai-title` as the title, so the line can't corrupt
+   the JSONL and it becomes the session's title.
+3. The stash file is deleted after stamping, and a re-stamp **replaces** the bracket rather than
    compounding it.
 
-Fires on every session end (`/clear`, logout, exit) with the last figures the statusLine rendered
-(≈ final totals). The `$` and context % match the Claude Code UI exactly, because they *are* the
-UI's values — the statusLine hands them over pre-computed.
-
-## 🎬 Demo
-
-The statusLine rendering and stashing, the stash contents, the hook consuming it at session end,
-and the title that comes out. Walked through step by step in [How to use](#how-to-use).
-
-![session-cost-stamp demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/session-cost-stamp-demo.gif)
+It fires on every session end (`/clear`, logout, exit) with the last figures the statusLine
+rendered, which are effectively the final totals. The `$` and context % match the Claude Code UI
+exactly, because they *are* the UI's values — the statusLine hands them over pre-computed.
 
 ## 📦 Install in Claude Code
 
