@@ -1,7 +1,7 @@
 {
   "name": "trip-plan",
   "version": "0.1.0",
-  "description": "Plan, review, and ship travel itineraries: sequence stops around opening hours and travel time, audit an existing plan, then publish it as a self-contained HTML file and an installable offline PWA.",
+  "description": "Itinerary days sequenced around opening hours, travel time and bookings, then shipped as an installable offline app.",
   "author": {
     "name": "dmitry-do"
   },

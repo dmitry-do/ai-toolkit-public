@@ -20,7 +20,7 @@ Inside Claude Code:
 | 📝 [`meeting-notes`](./plugins/meeting-notes) | Cleans raw transcripts in `rec/` into meeting summaries you can actually read. | Mine |
 | 🧾 [`session-cost-stamp`](./plugins/session-cost-stamp) | At session end, stamps the session's worked-time, context %, and cost into the transcript as its title, so it shows on `--resume`. Needs a statusLine that writes the stash. | Mine |
 
-Every plugin README has the same three sections: **How to use** (step by step, with the real input and the real output), **How it works** (a diagram of the moving parts), and **Demo** (those steps running). [`plugins/`](./plugins) has the index.
+Every plugin README opens the same way: **How it works** (a diagram of the moving parts), then a **Demo** of it running, then **How to use** (step by step, with the real input and the real output). [`plugins/`](./plugins) has the index.
 
 ## Evals
 

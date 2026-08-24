@@ -1,7 +1,41 @@
 # trip-plan
 
-Plan a trip, review one someone already wrote, then ship it as a file you can open on a plane and
-an app that sits on the home screen.
+Four days, a list of places, and no idea what order they go in — and two of them are shut on the
+day you planned to go. trip-plan sequences the days around opening hours, travel time and fixed
+bookings, audits a plan you already have, and ships the result as a file you can open on a plane
+and an app that sits on the home screen.
+
+## How it works
+
+![How trip-plan works](./docs/how-it-works.png)
+
+Three phases that don't chain — the skill enters at whichever one the request asks for.
+
+**Create** works in layers because each one constrains the next. Anchors (timed tickets, trains,
+sunset, weekly closing days) can't move, so they go first; clusters get assigned to dates around
+them; walking order is decided inside a cluster; dwell time is set last, and when a cluster doesn't
+fit, a stop gets cut rather than everything compressed by 20%. Checking closing days *before*
+assigning a stop to a date is the single most common way an otherwise good plan breaks.
+
+**`route_check.py`** exists because "this day looks tight" and "you arrive 27 minutes after your
+dinner reservation" are different statements, and only one of them is checkable. It's geometry and
+arithmetic — closing days, arrival times, anchor buffers, overflow, zig-zags — so it catches what
+the eye doesn't. Its zig-zag suggestion is geometry alone, which is why the advice is to re-run the
+check on any reordering: the shorter route often lands a museum after closing time.
+
+**`scrub_check.py`** is a build step rather than a promise, because the file gets emailed, synced,
+left open on a train table and published to a URL. It blocks on a keyword sitting next to something
+value-shaped, which is what lets `code in your password manager` through and stops `door code 4829`.
+`build_pwa.py` runs it first and refuses to build a leaky file — and the report masks the value it
+found, so the scan output is itself safe to paste.
+
+## Demo
+
+A broken day caught by the checker, the reorder that fixes it, the privacy scan blocking a build,
+and the same build succeeding once the codes are gone. Walked through step by step in
+[How to use](#how-to-use).
+
+![trip-plan demo](./docs/demo.gif)
 
 ## Install in Claude Code
 
@@ -10,10 +44,20 @@ an app that sits on the home screen.
 /plugin install trip-plan@ai-toolkit-public
 ```
 
-## Claude Web
+## Install in Claude Web
 
-The planning and review phases work anywhere. The delivery phase — building the PWA and publishing
-it — needs a shell, so it's Claude Code only.
+All three phases work on claude.ai. The scripts are stdlib-only Python 3, so `route_check.py`,
+`scrub_check.py` and `build_pwa.py` run there too — the build hands you `dist.zip` as a download
+instead of writing a folder to your disk. Publishing is the same either way: drop that zip at
+[Cloudflare Drop](https://www.cloudflare.com/drop/) and you have a URL.
+
+Package the skill folder:
+
+```bash
+scripts/package-skill.sh trip-plan        # writes dist/trip-plan-skill.zip
+```
+
+Then in claude.ai: **Customize → Skills → Add → Create skill → Upload a skill**, and select the zip.
 
 ## What it does
 
@@ -184,37 +228,6 @@ python3 "$SK/tests/run_tests.py"
 
 11 passed, 0 failed
 ```
-
-## How it works
-
-![How trip-plan works](./docs/how-it-works.png)
-
-Three phases that don't chain — the skill enters at whichever one the request asks for.
-
-**Create** works in layers because each one constrains the next. Anchors (timed tickets, trains,
-sunset, weekly closing days) can't move, so they go first; clusters get assigned to dates around
-them; walking order is decided inside a cluster; dwell time is set last, and when a cluster doesn't
-fit, a stop gets cut rather than everything compressed by 20%. Checking closing days *before*
-assigning a stop to a date is the single most common way an otherwise good plan breaks.
-
-**`route_check.py`** exists because "this day looks tight" and "you arrive 27 minutes after your
-dinner reservation" are different statements, and only one of them is checkable. It's geometry and
-arithmetic — closing days, arrival times, anchor buffers, overflow, zig-zags — so it catches what
-the eye doesn't. Its zig-zag suggestion is geometry alone, which is why the advice is to re-run the
-check on any reordering: the shorter route often lands a museum after closing time.
-
-**`scrub_check.py`** is a build step rather than a promise, because the file gets emailed, synced,
-left open on a train table and published to a URL. It blocks on a keyword sitting next to something
-value-shaped, which is what lets `code in your password manager` through and stops `door code 4829`.
-`build_pwa.py` runs it first and refuses to build a leaky file — and the report masks the value it
-found, so the scan output is itself safe to paste.
-
-## Demo
-
-A broken day caught by the checker, the reorder that fixes it, the privacy scan blocking a build,
-and the same build succeeding once the codes are gone.
-
-![trip-plan demo](./docs/demo.gif)
 
 ## Structure
 

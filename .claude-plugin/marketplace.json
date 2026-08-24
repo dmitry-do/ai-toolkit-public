@@ -12,7 +12,7 @@
     {
       "name": "trip-plan",
       "source": "./plugins/trip-plan",
-      "description": "Plan, review, and ship travel itineraries: sequence stops around opening hours and travel time, audit an existing plan, then publish it as a self-contained HTML file and an installable offline PWA.",
+      "description": "Itinerary days sequenced around opening hours, travel time and bookings, then shipped as an installable offline app.",
       "version": "0.1.0",
       "category": "travel",
       "keywords": ["travel", "itinerary", "trip", "planning", "pwa"]
@@ -20,7 +20,7 @@
     {
       "name": "audio-transcription",
       "source": "./plugins/audio-transcription",
-      "description": "Transcribe wav, mp3, and m4a recordings (meetings, calls, interviews, lectures, podcasts) into timestamped Markdown with Whisper: mlx-whisper on Apple Silicon, openai-whisper elsewhere.",
+      "description": "Recordings into timestamped, searchable Markdown with Whisper: meetings, calls, interviews, lectures, podcasts.",
       "version": "0.1.0",
       "category": "audio",
       "keywords": ["audio", "transcription", "whisper", "mlx", "speech-to-text"]
@@ -28,7 +28,7 @@
     {
       "name": "meeting-notes",
       "source": "./plugins/meeting-notes",
-      "description": "Process meeting transcripts from a rec/ folder into professional markdown summaries with isolation between transcripts.",
+      "description": "A folder of transcripts into one readable summary per meeting: TLDR, decisions, and action items with owners.",
       "version": "0.1.0",
       "category": "productivity",
       "keywords": ["meetings", "transcripts", "notes"]
@@ -36,7 +36,7 @@
     {
       "name": "session-cost-stamp",
       "source": "./plugins/session-cost-stamp",
-      "description": "At session end, stamp the session's worked-time, context %, and cost into the transcript as a native ai-title entry (shows on resume, persists in the file). Requires a statusLine that writes the stash — see the plugin README.",
+      "description": "Stamps each session's worked time, context % and cost into its own title, visible in the sessions list and on resume.",
       "version": "0.1.0",
       "category": "productivity",
       "keywords": ["claude-code", "statusline", "session", "cost", "context", "hooks", "transcript"]

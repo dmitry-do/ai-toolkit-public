@@ -1,7 +1,7 @@
 {
   "name": "meeting-notes",
   "version": "0.1.0",
-  "description": "Process meeting transcripts from a rec/ folder into professional markdown summaries with isolation between transcripts.",
+  "description": "A folder of transcripts into one readable summary per meeting: TLDR, decisions, and action items with owners.",
   "author": {
     "name": "dmitry-do"
   },

@@ -1,7 +1,7 @@
 {
   "name": "audio-transcription",
   "version": "0.1.0",
-  "description": "Transcribe wav, mp3, and m4a recordings (meetings, calls, interviews, lectures, podcasts) into timestamped Markdown with Whisper: mlx-whisper on Apple Silicon, openai-whisper elsewhere.",
+  "description": "Recordings into timestamped, searchable Markdown with Whisper: meetings, calls, interviews, lectures, podcasts.",
   "author": {
     "name": "dmitry-do"
   },

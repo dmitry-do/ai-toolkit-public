@@ -1,12 +1,33 @@
 # session-cost-stamp
 
-When a Claude Code session ends, record how long you worked, how full the context got, and what it
-cost — right into the session transcript. The stamp is written as the session's **title**, so it
-shows in the sessions list and on `--resume`, and it stays in the transcript file permanently:
+You finish a long session, close the terminal, and the only record of what it cost closes with it.
+session-cost-stamp writes the worked time, context % and dollar cost into the session's own title —
+so it shows in the sessions list, shows on `--resume`, and stays in the transcript file for good.
 
-```
-Remove AI blocks on .NET pages (worked 4m 26s, context: 40%, cost: $26.24)
-```
+## How it works
+
+![How session-cost-stamp works](./docs/how-it-works.png)
+
+1. On every render, your **statusLine** writes `~/.claude/session-stats/<session_id>` with the
+   latest context % / cost / duration (the exact UI figures).
+2. On session end, the **`SessionEnd` hook** reads that stash and appends a native
+   `{ "type": "ai-title", "aiTitle": "...", "sessionId": "..." }` line to the transcript, with the
+   stats added in brackets. Because it's the same entry type Claude Code writes itself (~dozens per
+   session) and the loader takes the **last** `ai-title` as the title, it can't corrupt the JSONL
+   and it becomes the session's title.
+3. The stash file is deleted after stamping. Re-stamps **replace** the bracket rather than
+   compounding it.
+
+Fires on every session end (`/clear`, logout, exit) with the last figures the statusLine rendered
+(≈ final totals). The `$` and context % match the Claude Code UI exactly, because they *are* the
+UI's values — the statusLine hands them over pre-computed.
+
+## Demo
+
+The statusLine rendering and stashing, the stash contents, the hook consuming it at session end,
+and the title that comes out. Walked through step by step in [How to use](#how-to-use).
+
+![session-cost-stamp demo](./docs/demo.gif)
 
 ## Install in Claude Code
 
@@ -118,31 +139,6 @@ Remove AI blocks on .NET pages (worked 4m 26s, context: 40%, cost: $26.24)
 
 Re-stamping replaces the bracket rather than compounding it, so a session that ends twice doesn't
 end up with two.
-
-## How it works
-
-![How session-cost-stamp works](./docs/how-it-works.png)
-
-1. On every render, your **statusLine** writes `~/.claude/session-stats/<session_id>` with the
-   latest context % / cost / duration (the exact UI figures).
-2. On session end, the **`SessionEnd` hook** reads that stash and appends a native
-   `{ "type": "ai-title", "aiTitle": "...", "sessionId": "..." }` line to the transcript, with the
-   stats added in brackets. Because it's the same entry type Claude Code writes itself (~dozens per
-   session) and the loader takes the **last** `ai-title` as the title, it can't corrupt the JSONL
-   and it becomes the session's title.
-3. The stash file is deleted after stamping. Re-stamps **replace** the bracket rather than
-   compounding it.
-
-Fires on every session end (`/clear`, logout, exit) with the last figures the statusLine rendered
-(≈ final totals). The `$` and context % match the Claude Code UI exactly, because they *are* the
-UI's values — the statusLine hands them over pre-computed.
-
-## Demo
-
-The statusLine rendering and stashing, the stash contents, the hook consuming it at session end,
-and the title that comes out.
-
-![session-cost-stamp demo](./docs/demo.gif)
 
 ## Requirements
 

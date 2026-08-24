@@ -1,8 +1,38 @@
 # 🎙️ audio-transcription
 
-Turn `wav`, `mp3`, and `m4a` recordings — meetings, calls, interviews, lectures, podcasts, voice
-memos, songs — into timestamped Markdown with Whisper. On Apple Silicon it uses `mlx-whisper`;
-everywhere else it falls back to `openai-whisper`.
+An hour of recorded meeting, and the one thing you need is somewhere in the middle of it.
+audio-transcription turns `wav`, `mp3` and `m4a` — plus `mp4`, `mov`, `mkv` and `webm` — into
+timestamped Markdown you can search, on the Whisper backend your machine is actually fastest on:
+`mlx-whisper` on Apple Silicon, `openai-whisper` everywhere else.
+
+## How it works
+
+![How audio-transcription works](./docs/how-it-works.png)
+
+Whisper's failure modes are specific, and each block above exists to defeat one of them:
+
+- **Preflight** picks the backend for the platform rather than trusting a flag. On Apple Silicon the
+  script refuses `--backend whisper` outright, because it's slower *and* less accurate there.
+- **Segmenter** drops silences over 2 seconds (Whisper hallucinates "Thank you." into them), keeps
+  chunks at 45 seconds or more, and snaps every cut to a real pause so no word is split across a
+  boundary. At ~34s chunks that snap is worth 8.8% → 3.7% WER on `large-v3`.
+- **Decode loop** runs with `condition_on_previous_text` off, which is what stops Whisper falling
+  into minutes-long repetition loops, and it deliberately does *not* carry the previous chunk's text
+  across the cut — measured at ~75 words silently deleted when it did.
+- **Second pass** audits the transcript against the audio: re-transcribes voiced spans no segment
+  covers, deletes hallucinated overlays, and retries segments Whisper's own confidence signals
+  flag. It self-gates to near zero extra work on clean recordings.
+- **The sidecar** is written after every chunk and deleted on success, which is what makes an
+  interrupted run resumable with no extra flag.
+
+Every number here comes from the harnesses in [`evals/`](../../evals), not from intuition.
+
+## Demo
+
+A real run: the dependency check, the natural-language ask, 87 seconds of audio transcribed in 8,
+and the Markdown it produced. Walked through step by step in [How to use](#how-to-use).
+
+![audio-transcription demo](./docs/demo.gif)
 
 ## Install in Claude Code
 
@@ -120,35 +150,6 @@ python3 "$ROOT/scripts/transcribe_audio.py" panel.wav --backend faster --beam-si
 # not Apple Silicon
 python3 "$ROOT/scripts/transcribe_audio.py" panel.wav --backend whisper --whisper-model medium
 ```
-
-## How it works
-
-![How audio-transcription works](./docs/how-it-works.png)
-
-Whisper's failure modes are specific, and each block above exists to defeat one of them:
-
-- **Preflight** picks the backend for the platform rather than trusting a flag. On Apple Silicon the
-  script refuses `--backend whisper` outright, because it's slower *and* less accurate there.
-- **Segmenter** drops silences over 2 seconds (Whisper hallucinates "Thank you." into them), keeps
-  chunks at 45 seconds or more, and snaps every cut to a real pause so no word is split across a
-  boundary. At ~34s chunks that snap is worth 8.8% → 3.7% WER on `large-v3`.
-- **Decode loop** runs with `condition_on_previous_text` off, which is what stops Whisper falling
-  into minutes-long repetition loops, and it deliberately does *not* carry the previous chunk's text
-  across the cut — measured at ~75 words silently deleted when it did.
-- **Second pass** audits the transcript against the audio: re-transcribes voiced spans no segment
-  covers, deletes hallucinated overlays, and retries segments Whisper's own confidence signals
-  flag. It self-gates to near zero extra work on clean recordings.
-- **The sidecar** is written after every chunk and deleted on success, which is what makes an
-  interrupted run resumable with no extra flag.
-
-Every number here comes from the harnesses in [`evals/`](../../evals), not from intuition.
-
-## Demo
-
-The steps above, end to end — the dependency check, the natural-language ask, the real run, and the
-Markdown it produced.
-
-![audio-transcription demo](./docs/demo.gif)
 
 ## Structure
 
