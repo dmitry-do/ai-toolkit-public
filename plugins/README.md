@@ -30,13 +30,13 @@ plugins/<name>/
   skills/<name>/reference/       # reference docs (trip-plan)
   hooks/hooks.json               # lifecycle hooks (session-cost-stamp)
   scripts/                       # hook + statusline scripts (session-cost-stamp)
-  docs/                          # how-it-works.png + demo.gif, shown in the plugin README
 ```
 
 Every plugin README opens the same way: **How it works** (a diagram of the moving parts), then a
 **Demo** of it running, then **How to use** (step by step, with the real input and the real
 output). Every image is generated — the diagram and the GIF by
 [`scripts/docs-assets/build.py`](../scripts/docs-assets/README.md), the screenshots by `shots.py`
-beside it.
+beside it — and all of them live in `docs/assets/` rather than in a plugin, so nothing you install
+carries a picture with it.
 
 See the root [LICENSE](../LICENSE).

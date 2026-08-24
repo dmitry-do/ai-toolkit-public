@@ -7,7 +7,7 @@ into timestamped Markdown you can search, on the Whisper backend your machine is
 
 ## ⚙️ How it works
 
-![How audio-transcription works](./docs/how-it-works.png)
+![How audio-transcription works](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/audio-transcription-how-it-works.png)
 
 Whisper's failure modes are specific, and each block above exists to defeat one of them:
 
@@ -32,7 +32,7 @@ Every number here comes from the harnesses in [`evals/`](../../evals), not from 
 A real run: the dependency check, the natural-language ask, 87 seconds of audio transcribed in 8,
 and the Markdown it produced. Walked through step by step in [How to use](#how-to-use).
 
-![audio-transcription demo](./docs/demo.gif)
+![audio-transcription demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/audio-transcription-demo.gif)
 
 ## 📦 Install in Claude Code
 
@@ -157,7 +157,6 @@ python3 "$ROOT/scripts/transcribe_audio.py" panel.wav --backend whisper --whispe
 plugins/audio-transcription/
 ├── .claude-plugin/plugin.json   # marketplace manifest
 ├── README.md                    # this file
-├── docs/                        # the diagram and demo GIF used above
 └── skills/audio-transcription/
     ├── SKILL.md                 # defaults, anti-patterns, "Tested with" stamp
     ├── scripts/transcribe_audio.py   # the transcription script

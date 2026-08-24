@@ -2,7 +2,8 @@
 
 A diagram is plain data: nodes at explicit 1x coordinates, orthogonal edges
 between named node sides, and optional group frames. Everything is drawn at
-2x and downsampled, so the PNG stays crisp on a retina screen.
+4x and downsampled to 2x: the supersampling is what keeps the edges clean, and
+the 2x output is what stays sharp on a retina screen.
 """
 from __future__ import annotations
 
@@ -10,7 +11,9 @@ from PIL import Image, ImageDraw
 
 import theme as T
 
-SCALE = 2
+OUT = 2            # output device pixel ratio
+SS = 2             # supersampling on top of it, which is what keeps edges clean
+SCALE = OUT * SS
 
 
 def _s(v):
@@ -178,6 +181,6 @@ class Canvas:
         self.d.polygon([_s(tip), _s(a), _s(b)], fill=colour)
 
     def save(self, path):
-        out = self.img.resize((self.w, self.h), Image.LANCZOS)
+        out = self.img.resize((self.w * OUT, self.h * OUT), Image.LANCZOS)
         out.save(path, "PNG", optimize=True)
         return path

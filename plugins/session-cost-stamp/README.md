@@ -6,7 +6,7 @@ so it shows in the sessions list, shows on `--resume`, and stays in the transcri
 
 ## ⚙️ How it works
 
-![How session-cost-stamp works](./docs/how-it-works.png)
+![How session-cost-stamp works](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/session-cost-stamp-how-it-works.png)
 
 1. On every render, your **statusLine** writes `~/.claude/session-stats/<session_id>` with the
    latest context % / cost / duration (the exact UI figures).
@@ -27,7 +27,7 @@ UI's values — the statusLine hands them over pre-computed.
 The statusLine rendering and stashing, the stash contents, the hook consuming it at session end,
 and the title that comes out. Walked through step by step in [How to use](#how-to-use).
 
-![session-cost-stamp demo](./docs/demo.gif)
+![session-cost-stamp demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/session-cost-stamp-demo.gif)
 
 ## 📦 Install in Claude Code
 

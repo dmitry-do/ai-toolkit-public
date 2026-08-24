@@ -1,22 +1,27 @@
 # docs-assets
 
 Generates the two images every plugin README carries: the **How it works** diagram
-(`plugins/<name>/docs/how-it-works.png`) and the **Demo** animation
-(`plugins/<name>/docs/demo.gif`).
+(`docs/assets/<name>-how-it-works.png`) and the **Demo** animation
+(`docs/assets/<name>-demo.gif`).
 
 ```bash
 python3 scripts/docs-assets/build.py             # all plugins
 python3 scripts/docs-assets/build.py trip-plan   # just one
 ```
 
-Two plugins also carry a **screenshot** of what they produce — `plugins/trip-plan/docs/output.png`
-and `plugins/meeting-notes/docs/transcript-to-summary.png`. Those come from `shots.py`, which needs
-Google Chrome:
+Two plugins also carry a **screenshot** of what they produce —
+`docs/assets/trip-plan-itinerary.png` and `docs/assets/meeting-notes-summary.png`. Those come from
+`shots.py`, which needs Google Chrome:
 
 ```bash
 python3 scripts/docs-assets/shots.py             # both
 python3 scripts/docs-assets/shots.py trip-plan   # just one
 ```
+
+Everything lands in `docs/assets/`, never inside a plugin: a plugin directory is downloaded on
+install and uploaded as a skill, and an image nothing at runtime reads has no business in either.
+The READMEs reference them by their public `raw.githubusercontent.com` URL, so the same file renders
+from the private repo, the public mirror, and anywhere else a README is read.
 
 The assets are committed, because GitHub renders them in the READMEs. This generator is here so
 they stay editable — change a step in a workflow and you regenerate the picture instead of
@@ -33,7 +38,7 @@ redrawing it.
 | `spec_diagrams.py` | One function per plugin — the diagram content. |
 | `spec_demos.py` | One function per plugin — the demo script. |
 | `shots.py` | Screenshots. Renders real files in headless Chrome and composes the captures with Pillow. Separate entry point because it needs Chrome. |
-| `samples/` | The trip-plan week the screenshot is of. Generator input, not part of any plugin. |
+| `samples/` | The trip-plan week the screenshot is of. Gitignored — see below. |
 
 ## Conventions
 
@@ -46,14 +51,20 @@ redrawing it.
 - **Pillow only, Python 3.9.** Same constraint as the bundled plugin scripts — it has to run on the
   macOS system interpreter, with no third-party drawing tools installed. `shots.py` adds one
   dependency, Google Chrome, because a screenshot of a real page needs a real browser.
-- **The screenshots are of the committed files.** `shots.py` photographs
-  [`samples/`](./samples/) and `plugins/meeting-notes/skills/meeting-notes/examples/` as they are
-  on disk. The trip-plan sample sits in `samples/` rather than in the plugin, because a file that
-  only the docs read shouldn't install with the plugin or upload with the skill. It stages two things
+- **The screenshots are of real files.** `shots.py` photographs what's on disk, never a mockup.
+  meeting-notes uses the plugin's own `examples/`, which is committed. trip-plan uses `samples/`,
+  which is **not**: a week of itinerary is docs input, not a plugin fixture, so it's gitignored.
+  The trade that buys is worth knowing — `docs/assets/trip-plan-itinerary.png` is a committed
+  artifact rather than a reproducible one. Rebuilding it means restoring those three files first
+  (`git log --diff-filter=D -- scripts/docs-assets/samples` finds the last version), and `shots.py`
+  says so rather than failing obscurely. It stages two things
   in a throwaway copy — it pins the clock, so the itinerary shows a day mid-trip rather than a trip
   that hasn't started, and it re-applies the page's own light palette, because Chrome inherits
   macOS dark mode. Nothing else is changed, and the committed file is never touched.
-- **Screenshots ship at 2×, diagrams and demos at 1×.** The diagrams are supersampled line art, so
-  downsampling them is what makes the edges clean. A screenshot is already-antialiased browser text,
-  and downsampling that just blurs it, so `shots.py` keeps the full 2× canvas.
-- Diagrams and demos are ~100–160 KB each; the two screenshots are ~400 KB each at 2×.
+- **Everything ships at retina resolution, by three different routes.** Diagrams are drawn at 4× and
+  downsampled to 2×, because supersampling is what keeps line art's edges clean. Demo frames are
+  rendered at 2× natively, since a GIF can't be supersampled without smearing the type. Screenshots
+  are captured at 3× and never resized, because browser text is antialiased once already and
+  resampling it a second time is exactly what made them look soft.
+- Diagrams are ~230–410 KB, demos ~130–300 KB, the two screenshots ~580–690 KB. The full set is
+  about 6 MB — all of it outside the plugins.

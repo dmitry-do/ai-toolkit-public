@@ -28,3 +28,9 @@ evals/behavioral/results/
 
 # skill packaging output (regenerate via scripts/package-skill.sh)
 /dist/
+
+# The trip-plan week that plugins/trip-plan/docs/output.png is a photograph of.
+# Kept out of the tree deliberately: it's docs input, not a plugin fixture. The
+# screenshot is committed; regenerating it needs these three files back, and the
+# last version of them is in history (git log -- scripts/docs-assets/samples).
+scripts/docs-assets/samples/

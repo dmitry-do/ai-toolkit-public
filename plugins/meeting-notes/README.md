@@ -7,7 +7,7 @@ with names and dates on them.
 
 ## ⚙️ How it works
 
-![How meeting-notes works](./docs/how-it-works.png)
+![How meeting-notes works](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/meeting-notes-how-it-works.png)
 
 Most of the design is about two failure modes that are invisible unless you look for them:
 
@@ -40,11 +40,11 @@ Finding the delta mechanically, the parallel subagents, the tell check coming ba
 what's done, and the summary that fell out. Walked through step by step in
 [How to use](#how-to-use).
 
-![meeting-notes demo](./docs/demo.gif)
+![meeting-notes demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/meeting-notes-demo.gif)
 
 ## 📄 Transcript in, summary out
 
-![A transcript, and the summary written from it](./docs/transcript-to-summary.png)
+![A transcript, and the summary written from it](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/meeting-notes-summary.png)
 
 Left is what the recorder hands you: timestamps, names, and a conversation nobody structured.
 Right is what lands in `summaries/` — a TLDR, the decisions as decisions, and action
@@ -179,7 +179,6 @@ short gets a `⚠️` row and no invented summary.
 plugins/meeting-notes/
 ├── .claude-plugin/plugin.json   # marketplace manifest
 ├── README.md                    # this file
-├── docs/                        # the diagram, demo GIF and screenshot used above
 └── skills/meeting-notes/        # this folder is what uploads to Claude Web
     ├── SKILL.md                 # workflow + templates
     ├── archive-old-recordings.py # archiving + unprocessed-list helper (unused on Claude Web)

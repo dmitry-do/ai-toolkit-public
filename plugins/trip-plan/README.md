@@ -7,7 +7,7 @@ and an installable app that sits on the home screen and works with no signal.
 
 ## ⚙️ How it works
 
-![How trip-plan works](./docs/how-it-works.png)
+![How trip-plan works](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-how-it-works.png)
 
 Three phases that don't chain — the skill enters at whichever one the request asks for.
 
@@ -35,11 +35,11 @@ A broken day caught by the checker, the reorder that fixes it, the privacy scan 
 and the same build succeeding once the codes are gone. Walked through step by step in
 [How to use](#how-to-use).
 
-![trip-plan demo](./docs/demo.gif)
+![trip-plan demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-demo.gif)
 
 ## 📱 What you get: Markdown, then an app
 
-![The Markdown plan, and the app built from it](./docs/output.png)
+![The Markdown plan, and the app built from it](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-itinerary.png)
 
 Two artifacts out of one plan. **The Markdown** is the one you argue with: a section per day, each
 opening with the constraint that set the order, so the reasoning is editable rather than buried.
@@ -49,10 +49,9 @@ with a manifest, a service worker and icons, zipped as `dist.zip`. On a home scr
 screen with no browser chrome, works with no signal, opens on today's card, and folds away the stops
 you've already walked past.
 
-The week in that screenshot is a real plan rather than a mockup. The Markdown, the
-`route_check.py` JSON for all seven days, and the built HTML the phone is showing are in
-[`scripts/docs-assets/samples/`](../../scripts/docs-assets/samples/) — outside the plugin, because
-nothing at runtime reads them — and the checker passes clean on it.
+That week is a plan the skill's own tools produced and passed, not a mockup: seven days sequenced
+by the rules above, `route_check.py` clean on every one of them, and `scrub_check.py` clean on the
+HTML the phone is showing.
 
 ## 📦 Install in Claude Code
 
@@ -275,7 +274,6 @@ python3 "$SK/tests/run_tests.py"
 plugins/trip-plan/
 ├── .claude-plugin/plugin.json      # marketplace manifest
 ├── README.md                       # this file
-├── docs/                           # the diagram, demo GIF and screenshot used above
 └── skills/trip-plan/
     ├── SKILL.md                    # sequencing rules, review mode, the privacy rule
     ├── reference/

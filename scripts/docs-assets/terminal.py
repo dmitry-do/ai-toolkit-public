@@ -1,5 +1,8 @@
 """Animated terminal renderer: a demo script in, an optimised GIF out.
 
+Frames are rendered at SCALE device pixels per CSS pixel, so the type stays
+sharp on a retina screen. Every layout constant below derives from it.
+
 A demo is a list of actions. Text carries a tiny colour markup — {g}green{/},
 plus {r} {y} {c} {d} {m} {b} {w} — so the specs stay readable. Lines soft-wrap
 at the window width exactly as a real terminal does.
@@ -12,12 +15,13 @@ from PIL import Image, ImageDraw
 
 import theme as T
 
+SCALE = 2          # device pixel ratio the frames are rendered at
 COLS = 112
-FONT_SIZE = 14
-LINE_H = 20
-PAD_X = 16
-PAD_Y = 12
-CHROME_H = 32
+FONT_SIZE = 14 * SCALE
+LINE_H = 20 * SCALE
+PAD_X = 16 * SCALE
+PAD_Y = 12 * SCALE
+CHROME_H = 32 * SCALE
 ROWS = 21
 
 _COLOURS = {
@@ -75,8 +79,9 @@ class Terminal:
         d.rectangle([0, 0, self.w, CHROME_H], fill=T.T_CHROME)
         d.line([0, CHROME_H, self.w, CHROME_H], fill=T.T_BORDER)
         for i, c in enumerate(("#E0796F", "#DCA95C", "#8CC08A")):
-            d.ellipse([16 + i * 18, CHROME_H // 2 - 5, 26 + i * 18, CHROME_H // 2 + 5], fill=c)
-        d.text((self.w // 2, CHROME_H // 2), self.title, font=T.mono(12),
+            cx, r = (16 + i * 18) * SCALE, 5 * SCALE
+            d.ellipse([cx, CHROME_H // 2 - r, cx + 2 * r, CHROME_H // 2 + r], fill=c)
+        d.text((self.w // 2, CHROME_H // 2), self.title, font=T.mono(12 * SCALE),
                fill=T.T_DIM, anchor="mm")
 
         body = list(self.rows)
@@ -90,7 +95,8 @@ class Terminal:
                 d.text((x, y), text, font=self.font, fill=colour)
                 x += self.adv * len(text)
             if cursor and row is body[-1]:
-                d.rectangle([x + 1, y + 2, x + self.adv, y + FONT_SIZE + 4], fill=T.T_FG)
+                d.rectangle([x + SCALE, y + 2 * SCALE, x + self.adv,
+                             y + FONT_SIZE + 4 * SCALE], fill=T.T_FG)
             y += LINE_H
         return img
 

@@ -4,7 +4,11 @@
     python3 scripts/docs-assets/build.py            # all plugins
     python3 scripts/docs-assets/build.py trip-plan  # just one
 
-Writes plugins/<name>/docs/how-it-works.png and plugins/<name>/docs/demo.gif.
+Writes docs/assets/<name>-how-it-works.png and docs/assets/<name>-demo.gif.
+
+They live there, and not in plugins/<name>/docs/, because a plugin directory is
+downloaded on install and an image nothing at runtime reads has no business in
+it. The READMEs reference them by public URL.
 """
 from __future__ import annotations
 
@@ -21,7 +25,8 @@ import spec_diagrams  # noqa: E402
 import theme  # noqa: E402
 
 HERE = pathlib.Path(__file__).resolve().parent
-PLUGINS = HERE.parent.parent / "plugins"
+ROOT = HERE.parent.parent
+ASSETS = ROOT / "docs" / "assets"
 
 
 def _tofu_chars(font, chars):
@@ -52,13 +57,11 @@ def check_glyphs():
 
 
 def build(names):
+    ASSETS.mkdir(parents=True, exist_ok=True)
     for name in names:
-        out = PLUGINS / name / "docs"
-        out.mkdir(parents=True, exist_ok=True)
-
-        png = spec_diagrams.BUILDERS[name]().save(str(out / "how-it-works.png"))
+        png = spec_diagrams.BUILDERS[name]().save(str(ASSETS / ("%s-how-it-works.png" % name)))
         term = spec_demos.BUILDERS[name]()
-        gif = term.save(str(out / "demo.gif"))
+        gif = term.save(str(ASSETS / ("%s-demo.gif" % name)))
         print("  %-20s %4d KB png   %4d KB gif (%d frames)" % (
             name, os.path.getsize(png) // 1024, os.path.getsize(gif) // 1024,
             len(term.frames)))

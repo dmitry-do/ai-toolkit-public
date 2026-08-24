@@ -8,6 +8,11 @@ itinerary is the itinerary, not an illustration of one.
     python3 scripts/docs-assets/shots.py                # every shot
     python3 scripts/docs-assets/shots.py trip-plan      # just one
 
+Output goes to docs/assets/, not into any plugin: a screenshot is documentation,
+and a plugin directory is downloaded on install. The READMEs reference them by
+their public raw.githubusercontent.com URL, so the same image renders from the
+private repo, the public mirror, and anywhere else the README is read.
+
 Needs Google Chrome. build.py doesn't, which is why this is a separate entry
 point rather than another step inside it.
 
@@ -20,8 +25,11 @@ Two things are staged for the camera, both in a throwaway copy of the file:
 
 Nothing else is touched, and the committed file is never modified.
 
-The trip-plan sample lives in `samples/` beside this file rather than inside the
-plugin, so it doesn't install with the plugin or upload with the skill.
+The trip-plan sample lives in `samples/` beside this file and is gitignored: it
+is docs input, not a plugin fixture or a shipped example. That makes
+`docs/assets/trip-plan-itinerary.png` a committed artifact rather than a
+reproducible one — regenerating it needs those files back, and the last version
+of them is in git history (`git log -- scripts/docs-assets/samples`).
 """
 from __future__ import annotations
 
@@ -40,12 +48,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import theme as T  # noqa: E402
 
-SCALE = 2
+SCALE = 3          # device pixel ratio: captures and canvas share it
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 PLUGINS = ROOT / "plugins"
 SAMPLES = HERE / "samples"   # generator input, deliberately outside the plugins
+ASSETS = ROOT / "docs" / "assets"   # published images, also outside the plugins
 
 INDIGO = "#33418F"   # the itinerary's own accent, so the pane matches the phone
 
@@ -291,6 +300,7 @@ class Sheet:
                        fill=colour)
 
     def save(self, path):
+        pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
         # Kept at SCALE, not resized down: every capture in here is taken at the
         # same device pixel ratio, so downsampling would blur browser-rendered
         # text that is already antialiased. GitHub scales it to the column width
@@ -304,6 +314,15 @@ class Sheet:
 def trip_plan():
     """The Markdown plan beside the app that gets built out of it."""
     ex = SAMPLES
+    missing = [f for f in ("tokyo-2026-12.md", "tokyo-2026-12.html") if not (ex / f).exists()]
+    if missing:
+        sys.exit(
+            "trip-plan's sample week is not in this checkout: %s missing from %s.\n"
+            "It's gitignored on purpose, so the committed screenshot can't be rebuilt\n"
+            "from a clean clone. Recover it with:\n"
+            "  git log --diff-filter=D -- scripts/docs-assets/samples\n"
+            "  git checkout <that commit>^ -- scripts/docs-assets/samples"
+            % (", ".join(missing), ex))
     # Midday on the 24th: three stops already done, so the shot carries the
     # TODAY tag, the folded past rows and the marker on the next stop at once.
     staged = stage_itinerary(ex / "tokyo-2026-12.html", when=(2026, 12, 24, 12, 0))
@@ -355,8 +374,7 @@ def trip_plan():
     s.paste(phone, 554, 124, radius=20)
     s.arrow(506, 392, 536)
 
-    out = PLUGINS / "trip-plan" / "docs" / "output.png"
-    return s.save(str(out))
+    return s.save(str(ASSETS / "trip-plan-itinerary.png"))
 
 
 def meeting_notes():
@@ -391,8 +409,7 @@ def meeting_notes():
     s.label(508, 754, "TLDR, decisions, and action items with a name and a date on each one.",
             size=13)
 
-    out = PLUGINS / "meeting-notes" / "docs" / "transcript-to-summary.png"
-    return s.save(str(out))
+    return s.save(str(ASSETS / "meeting-notes-summary.png"))
 
 
 BUILDERS = {
