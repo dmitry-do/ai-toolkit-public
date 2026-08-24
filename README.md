@@ -22,12 +22,6 @@ Inside Claude Code:
 
 Every plugin README has the same three sections: **How to use** (step by step, with the real input and the real output), **How it works** (a diagram of the moving parts), and **Demo** (those steps running). [`plugins/`](./plugins) has the index.
 
-### trip-plan, in one picture
-
-![How trip-plan works](./plugins/trip-plan/docs/how-it-works.png)
-
-Three phases — draft an itinerary, audit one that already exists, or ship the locked plan as a file and an installable app. The day is checked arithmetically rather than by eye (closing days, late arrivals, anchor buffers, overflow), and the build refuses to produce a file that still carries booking codes or personal data. [Read more →](./plugins/trip-plan)
-
 ## Evals
 
 [`evals/`](./evals) holds the speed-vs-quality harness for `audio-transcription`, with reproducible WER numbers and a public-domain LibriVox *War & Peace* fixture, plus a behavioral trigger-rate harness for the skills (does the right phrasing fire them, do near-misses hold). See [`evals/README.md`](./evals/README.md).
