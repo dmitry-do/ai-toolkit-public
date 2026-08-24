@@ -134,6 +134,10 @@ Markdown artifact for the draft and any revisions. Use emojis as section anchors
 
 End each day with a short **Notes** block: bookings required, what to skip if running late, weather backup.
 
+A finished week in this format — the Markdown, the `route_check.py` JSON for every day, and the
+built HTML — is in `${CLAUDE_PLUGIN_ROOT}/skills/trip-plan/examples/`. Read it rather than guessing
+at the shape of the output.
+
 ## Review mode
 
 When the user shares an existing itinerary and asks for a review:

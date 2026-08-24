@@ -1,11 +1,11 @@
-# trip-plan
+# 🗺️ trip-plan
 
 Four days, a list of places, and no idea what order they go in — and two of them are shut on the
 day you planned to go. trip-plan sequences the days around opening hours, travel time and fixed
-bookings, audits a plan you already have, and ships the result as a file you can open on a plane
-and an app that sits on the home screen.
+bookings, audits a plan you already have, and ships the result twice: a Markdown plan you can edit,
+and an installable app that sits on the home screen and works with no signal.
 
-## How it works
+## ⚙️ How it works
 
 ![How trip-plan works](./docs/how-it-works.png)
 
@@ -29,7 +29,7 @@ value-shaped, which is what lets `code in your password manager` through and sto
 `build_pwa.py` runs it first and refuses to build a leaky file — and the report masks the value it
 found, so the scan output is itself safe to paste.
 
-## Demo
+## 🎬 Demo
 
 A broken day caught by the checker, the reorder that fixes it, the privacy scan blocking a build,
 and the same build succeeding once the codes are gone. Walked through step by step in
@@ -37,19 +37,37 @@ and the same build succeeding once the codes are gone. Walked through step by st
 
 ![trip-plan demo](./docs/demo.gif)
 
-## Install in Claude Code
+## 📱 What you get: Markdown, then an app
+
+![The Markdown plan, and the app built from it](./docs/output.png)
+
+Two artifacts out of one plan. **The Markdown** is the one you argue with: a section per day, each
+opening with the constraint that set the order, so the reasoning is editable rather than buried.
+**The app** is that same plan built into a
+[Progressive Web App](https://web.dev/articles/what-are-pwas) — one self-contained HTML file wrapped
+with a manifest, a service worker and icons, zipped as `dist.zip`. On a home screen it opens full
+screen with no browser chrome, works with no signal, opens on today's card, and folds away the stops
+you've already walked past.
+
+The week in that screenshot is real and it's in the repo:
+[`examples/`](./skills/trip-plan/examples/) holds the Markdown, the `route_check.py` JSON for all
+seven days, and the built HTML the phone is showing.
+
+## 📦 Install in Claude Code
 
 ```
 /plugin marketplace add dmitry-do/ai-toolkit-public
 /plugin install trip-plan@ai-toolkit-public
 ```
 
-## Install in Claude Web
+## 🌐 Install in Claude Web
 
 All three phases work on claude.ai. The scripts are stdlib-only Python 3, so `route_check.py`,
 `scrub_check.py` and `build_pwa.py` run there too — the build hands you `dist.zip` as a download
-instead of writing a folder to your disk. Publishing is the same either way: drop that zip at
-[Cloudflare Drop](https://www.cloudflare.com/drop/) and you have a URL.
+instead of writing a folder to your disk. Publishing is the one real difference: in Claude Code the
+skill deploys the folder for you with Wrangler and reads the URL back, while on claude.ai there's no
+terminal, so it hands you the zip and you drop it at
+[Cloudflare Drop](https://www.cloudflare.com/drop/) yourself. That takes about ten seconds.
 
 Package the skill folder:
 
@@ -59,22 +77,23 @@ scripts/package-skill.sh trip-plan        # writes dist/trip-plan-skill.zip
 
 Then in claude.ai: **Customize → Skills → Add → Create skill → Upload a skill**, and select the zip.
 
-## What it does
+## 🧩 What it does
 
 Three phases, and the skill picks the one the request asks for:
 
-- **Create** — drafts a day-by-day itinerary. Anchors first (timed tickets, trains, sunset, weekly
+- **Create** — drafts a day-by-day itinerary as Markdown you can edit. Anchors first (timed tickets, trains, sunset, weekly
   closures), then stops clustered by neighbourhood, then ordered by walking distance inside each
   cluster, with an honest dwell time on every stop. Each day opens with a one-line *why this order*
   so the reasoning is arguable, not just the output.
 - **Review** — audits an existing plan against the same rules and says plainly what's broken: a
   stop sitting on its closing day, a day that crosses the city four times, a dinner you arrive at
   27 minutes late. Cuts are ranked by regret rather than softened.
-- **Deliver** — one self-contained HTML file (opens offline from Files, no server), then the same
-  file wrapped as an installable PWA with a manifest, service worker, and icons, zipped for
-  Cloudflare Drop. Today's day-card opens on load; stops already past fold away.
+- **Deliver** — the locked Markdown becomes one self-contained HTML file (opens offline from Files,
+  no server), then the same file wrapped as an installable
+  [PWA](https://web.dev/articles/what-are-pwas) with a manifest, service worker, and icons, zipped
+  as `dist.zip`. Today's day-card opens on load; stops already past fold away.
 
-## Privacy is a build step, not a promise
+## 🔒 Privacy is a build step, not a promise
 
 The plan carries locations, times, prices, and ratings. It never carries booking references, door
 codes, passport numbers, card numbers, or personal contact details — because the file gets emailed,
@@ -84,7 +103,7 @@ The rule is enforced rather than trusted: `build_pwa.py` runs `scrub_check.py` f
 build a leaky file. The scanner blocks on a keyword next to something value-shaped, so
 `code in your password manager` passes and `door code 4829` doesn't.
 
-## How to use
+## 📖 How to use
 
 `SK="${CLAUDE_PLUGIN_ROOT}/skills/trip-plan"` in the commands below. The skill picks its phase from
 what you ask for — you don't select one.
@@ -211,8 +230,21 @@ Zipped: dist.zip (11388 bytes, files at zip root)
 Deploy this directory or the zip. index.html sits at the root, as Drop expects.
 ```
 
-Drag `dist.zip` onto [Cloudflare Drop](https://developers.cloudflare.com/workers/) and it's a URL
-you can install to a home screen. Today's day-card opens on load; stops already past fold away.
+In Claude Code the skill publishes it for you, because Wrangler deploys a folder without needing a
+Cloudflare account:
+
+```bash
+npm exec --yes wrangler@latest -- deploy ./dist \
+  --name tokyo-december-2026 --temporary --compatibility-date 2026-08-24   # today's date
+```
+
+You get a live `workers.dev` URL and a claim URL. The claim URL expires in an hour and grants
+ownership of the deployment, so it isn't for sharing. With no terminal — on claude.ai — drag
+`dist.zip` onto [Cloudflare Drop](https://www.cloudflare.com/drop/) instead: about ten seconds, same
+result.
+
+Either way it installs to a home screen. Today's day-card opens on load; stops already past fold
+away.
 
 ### 5. Run the fixtures if you change anything
 
@@ -223,21 +255,29 @@ python3 "$SK/tests/run_tests.py"
 ```
   pass  scrub: the phrasing SKILL.md recommends does not block
   pass  scrub: real codes and numbers still block
+  pass  scrub: the masked report never prints the value
+  pass  scrub: --allow narrows one category without disarming the rest
+  pass  route: a day that holds up passes
   pass  route: closing day, late links, anchor buffer and overflow all caught
+  pass  route: half-filled days are checked, not rejected
+  pass  build: --out cannot delete the directory holding the itinerary
+  pass  build: a foreign non-empty directory is refused, its own output is reused
+  pass  build: injection is idempotent and the worker guards what it caches
   pass  build: a leaky itinerary stops the build before anything is written
 
 11 passed, 0 failed
 ```
 
-## Structure
+## 🗂️ Structure
 
 ```
 plugins/trip-plan/
 ├── .claude-plugin/plugin.json      # marketplace manifest
 ├── README.md                       # this file
-├── docs/                           # the diagram and demo GIF used above
+├── docs/                           # the diagram, demo GIF and screenshot used above
 └── skills/trip-plan/
     ├── SKILL.md                    # sequencing rules, review mode, the privacy rule
+    ├── examples/                   # a worked week: Markdown, route_check JSON, built HTML
     ├── reference/
     │   ├── deliver.md              # HTML build, PWA packaging, Cloudflare Drop deploy
     │   └── style.md                # visual direction for the itinerary page

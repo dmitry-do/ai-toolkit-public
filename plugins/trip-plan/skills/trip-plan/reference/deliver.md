@@ -13,6 +13,9 @@ Build the HTML first, then run the packaging script. Don't hand-write manifests 
 
 ### Step 1: the HTML file
 
+A built example of everything below is in `../examples/tokyo-2026-12.html`, next to the Markdown it
+came from. Copying its structure is faster than assembling one from this list.
+
 - One HTML file, everything inlined (CSS in `<style>`, JS in `<script>`, no external links to fonts, scripts, or images). Keep it that way: the script adds the PWA layer around it without breaking the local copy
 - Single `<title>` and a brief `<meta name="description">` so the saved file is recognisable in Files
 - `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`

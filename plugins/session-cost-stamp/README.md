@@ -1,10 +1,10 @@
-# session-cost-stamp
+# 🧾 session-cost-stamp
 
 You finish a long session, close the terminal, and the only record of what it cost closes with it.
 session-cost-stamp writes the worked time, context % and dollar cost into the session's own title —
 so it shows in the sessions list, shows on `--resume`, and stays in the transcript file for good.
 
-## How it works
+## ⚙️ How it works
 
 ![How session-cost-stamp works](./docs/how-it-works.png)
 
@@ -22,14 +22,14 @@ Fires on every session end (`/clear`, logout, exit) with the last figures the st
 (≈ final totals). The `$` and context % match the Claude Code UI exactly, because they *are* the
 UI's values — the statusLine hands them over pre-computed.
 
-## Demo
+## 🎬 Demo
 
 The statusLine rendering and stashing, the stash contents, the hook consuming it at session end,
 and the title that comes out. Walked through step by step in [How to use](#how-to-use).
 
 ![session-cost-stamp demo](./docs/demo.gif)
 
-## Install in Claude Code
+## 📦 Install in Claude Code
 
 ```
 /plugin marketplace add dmitry-do/ai-toolkit-public
@@ -77,7 +77,7 @@ Where `used_pct` / `cost_raw` come from the statusLine JSON on stdin:
 
 No stash → the hook exits quietly and nothing is stamped.
 
-## How to use
+## 📖 How to use
 
 ### 1. Install, then reload
 
@@ -140,12 +140,12 @@ Remove AI blocks on .NET pages (worked 4m 26s, context: 40%, cost: $26.24)
 Re-stamping replaces the bracket rather than compounding it, so a session that ends twice doesn't
 end up with two.
 
-## Requirements
+## 📋 Requirements
 
 - **macOS / Linux**, POSIX `sh`, and **`jq`** on `PATH` (used by the hook and the statusLine).
 - A configured statusLine (see above).
 
-## Disable / uninstall
+## 🧹 Disable / uninstall
 
 ```
 /plugin uninstall session-cost-stamp@ai-toolkit-public
@@ -154,7 +154,7 @@ end up with two.
 The statusLine stash block is harmless on its own (it just writes a tiny file each render); remove
 it too if you no longer want it.
 
-## Notes
+## 🗒️ Notes
 
 - Claude Web (claude.ai): not applicable — there is no local statusLine or transcript file.
 - It writes into your real transcript `.jsonl`. This is deliberate (an existing, native entry

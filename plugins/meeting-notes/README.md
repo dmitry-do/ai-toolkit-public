@@ -5,7 +5,7 @@ you've already dealt with. meeting-notes works out what's new, gives each transc
 isolated subagent, and writes one readable summary per meeting — TLDR, decisions, and action items
 with names and dates on them.
 
-## How it works
+## ⚙️ How it works
 
 ![How meeting-notes works](./docs/how-it-works.png)
 
@@ -34,7 +34,7 @@ Three more rules earn their place:
 The reasoning in full, with anti-patterns and validation history, is in
 [`references/rationale.md`](./skills/meeting-notes/references/rationale.md).
 
-## Demo
+## 🎬 Demo
 
 Finding the delta mechanically, the parallel subagents, the tell check coming back clean, stowing
 what's done, and the summary that fell out. Walked through step by step in
@@ -42,14 +42,23 @@ what's done, and the summary that fell out. Walked through step by step in
 
 ![meeting-notes demo](./docs/demo.gif)
 
-## Install in Claude Code
+## 📄 Transcript in, summary out
+
+![A transcript, and the summary written from it](./docs/transcript-to-summary.png)
+
+Left is what the recorder hands you: timestamps, names, and a conversation nobody structured.
+Right is what lands in `summaries/` — a TLDR, the decisions as decisions, and action
+items with a name and a timeline on each. Both files are in the repo:
+[`examples/`](./skills/meeting-notes/examples/) holds the pair the screenshot is of.
+
+## 📦 Install in Claude Code
 
 ```
 /plugin marketplace add dmitry-do/ai-toolkit-public
 /plugin install meeting-notes@ai-toolkit-public
 ```
 
-## Install in Claude Web
+## 🌐 Install in Claude Web
 
 Works on claude.ai over uploaded/pasted transcripts (no local `rec/` folder needed — see the
 "On Claude Web" note in the skill). Package the skill folder:
@@ -60,7 +69,7 @@ scripts/package-skill.sh meeting-notes        # writes dist/meeting-notes-skill.
 
 Then in claude.ai: **Customize → Skills → Add → Create skill → Upload a skill**, and select the zip.
 
-## What it does
+## 🧩 What it does
 
 - Archives entries older than three months before each run (Step 0), moving tracker rows and their transcripts together so `rec/` and `RECORDINGS.md` stay small and nothing already done gets reprocessed.
 - Finds unprocessed `.txt` transcripts mechanically — a bundled script diffs `rec/` against the `RECORDINGS.md` tracker, so the orchestrator never reads the full tracker into context.
@@ -73,7 +82,7 @@ Then in claude.ai: **Customize → Skills → Add → Create skill → Upload a 
 - Translates Russian transcripts to English while preserving names, terms, and meaning.
 - Runs a mechanical AI-tell check (grep: em dashes, h1 titles, bold-label bullets, Title Case drift) over each new summary, escalating to the [`humanizer`](https://github.com/blader/humanizer) skill only on files with hits — and only when that skill is installed.
 
-## How to use
+## 📖 How to use
 
 Point it at a project laid out like this — `rec/` for transcripts, `summaries/` for output,
 `RECORDINGS.md` as the tracker. `SK=${CLAUDE_PLUGIN_ROOT}/skills/meeting-notes` below.
@@ -164,13 +173,13 @@ archive/RECORDINGS.md                              the full processing history
 Run it again the next day and it processes only what's new. A transcript that was garbled or too
 short gets a `⚠️` row and no invented summary.
 
-## Structure
+## 🗂️ Structure
 
 ```
 plugins/meeting-notes/
 ├── .claude-plugin/plugin.json   # marketplace manifest
 ├── README.md                    # this file
-├── docs/                        # the diagram and demo GIF used above
+├── docs/                        # the diagram, demo GIF and screenshot used above
 └── skills/meeting-notes/        # this folder is what uploads to Claude Web
     ├── SKILL.md                 # workflow + templates
     ├── archive-old-recordings.py # archiving + unprocessed-list helper (unused on Claude Web)

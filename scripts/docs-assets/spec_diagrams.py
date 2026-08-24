@@ -160,17 +160,18 @@ def session_cost_stamp():
 
 
 def trip_plan():
-    c = Canvas(1240, 730, "trip-plan",
-               "three phases; the skill picks the one the request actually asks for")
+    c = Canvas(1240, 820, "trip-plan",
+               "three phases; the skill picks the one the request asks for, "
+               "and each one ends in a file you keep")
 
-    c.group(40, 112, 370, 570, "1  ·  CREATE")
-    c.group(435, 112, 370, 570, "2  ·  REVIEW")
-    c.group(830, 112, 370, 570, "3  ·  DELIVER")
+    c.group(40, 112, 370, 660, "1  ·  CREATE")
+    c.group(435, 112, 370, 660, "2  ·  REVIEW")
+    c.group(830, 112, 370, 660, "3  ·  DELIVER")
 
     c.node("ci", 60, 156, 330, 106, "Dates, home base, must-sees, pace", [
         "asked for once, only where unclear",
     ], kind="io", title_size=15)
-    c.node("cs", 60, 296, 330, 186, "Sequencing", [
+    c.node("cs", 60, 288, 330, 180, "Sequencing", [
         "1  anchors first: tickets, trains,",
         "    sunset, weekly closing days",
         "2  cluster by neighbourhood",
@@ -178,17 +179,21 @@ def trip_plan():
         "4  an honest dwell time per stop",
         "5  one line saying why this order",
     ])
-    c.node("cr", 60, 512, 330, 148, "route_check.py", [
+    c.node("cr", 60, 494, 330, 134, "route_check.py", [
         "closing days · late arrivals",
         "anchor buffers · day overflow",
         "detours and zig-zags",
         "!re-run it after every reorder",
     ], kind="guard", mono_title=True, title_size=15)
+    c.node("cm", 60, 654, 330, 96, "itinerary.md", [
+        "one Markdown file, a section per day,",
+        "each opening with why this order",
+    ], kind="io", mono_title=True, title_size=15)
 
     c.node("ri", 455, 156, 330, 106, "A plan you already have", [
         "yours, or someone else's",
     ], kind="io", title_size=15)
-    c.node("ra", 455, 296, 330, 186, "Audit", [
+    c.node("ra", 455, 288, 330, 180, "Audit", [
         "web-search the hours, transit",
         "and prices: plans go stale fast",
         "transcribe each day to JSON and",
@@ -196,35 +201,48 @@ def trip_plan():
         "reordering is free, so try it",
         "before dropping anything",
     ])
-    c.node("ro", 455, 512, 330, 148, "An honest cut", [
+    c.node("ro", 455, 494, 330, 134, "An honest cut", [
         "strong regret risks",
         "already covered well",
         "skippable if time runs short",
         "drop X to free time for Y",
-    ], kind="io")
+    ])
+    c.node("rm", 455, 654, 330, 96, "The plan, reordered", [
+        "the same stops in an order that works,",
+        "re-checked before you see it",
+    ], kind="io", title_size=15)
 
     c.node("dh", 850, 156, 330, 106, "itinerary.html", [
-        "one self-contained file, opens offline",
+        "the locked Markdown plan as one",
+        "self-contained file, opens offline",
     ], kind="io", mono_title=True, title_size=15)
-    c.node("ds", 850, 296, 330, 186, "scrub_check.py", [
+    c.node("ds", 850, 288, 330, 180, "scrub_check.py", [
         "blocks on a keyword sitting next",
         "to something value-shaped:",
         "\"code in your password manager\"",
         "passes, \"door code 4829\" does not",
         "!it runs first, inside the build",
     ], kind="guard", mono_title=True, title_size=15)
-    c.node("db", 850, 512, 330, 148, "build_pwa.py", [
+    c.node("db", 850, 494, 330, 134, "build_pwa.py", [
         "manifest, service worker, icons",
-        "dist/ and dist.zip, index.html at",
-        "the root, as Cloudflare Drop expects",
+        "index.html at the root, as",
+        "Cloudflare Drop expects",
     ], mono_title=True, title_size=15)
+    c.node("dz", 850, 654, 330, 96, "dist.zip", [
+        "deployed for you with wrangler, or",
+        "dropped on Cloudflare Drop by hand:",
+        "a URL that installs to a home screen",
+    ], kind="io", mono_title=True, title_size=15)
 
     c.edge("ci:b", "cs:t", style="accent")
     c.edge("cs:b", "cr:t", style="accent")
+    c.edge("cr:b", "cm:t", style="accent")
     c.edge("ri:b", "ra:t", style="accent")
     c.edge("ra:b", "ro:t", style="accent")
+    c.edge("ro:b", "rm:t", style="accent")
     c.edge("dh:b", "ds:t", style="accent")
     c.edge("ds:b", "db:t", style="accent", label="clean", label_dy=-9)
+    c.edge("db:b", "dz:t", style="accent")
     return c
 
 

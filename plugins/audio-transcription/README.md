@@ -1,11 +1,11 @@
 # 🎙️ audio-transcription
 
 An hour of recorded meeting, and the one thing you need is somewhere in the middle of it.
-audio-transcription turns `wav`, `mp3` and `m4a` — plus `mp4`, `mov`, `mkv` and `webm` — into
-timestamped Markdown you can search, on the Whisper backend your machine is actually fastest on:
+audio-transcription turns `wav`, `mp3` and `m4a` — plus `mp4`, `m4v`, `mov`, `mkv` and `webm` —
+into timestamped Markdown you can search, on the Whisper backend your machine is actually fastest on:
 `mlx-whisper` on Apple Silicon, `openai-whisper` everywhere else.
 
-## How it works
+## ⚙️ How it works
 
 ![How audio-transcription works](./docs/how-it-works.png)
 
@@ -27,26 +27,26 @@ Whisper's failure modes are specific, and each block above exists to defeat one 
 
 Every number here comes from the harnesses in [`evals/`](../../evals), not from intuition.
 
-## Demo
+## 🎬 Demo
 
 A real run: the dependency check, the natural-language ask, 87 seconds of audio transcribed in 8,
 and the Markdown it produced. Walked through step by step in [How to use](#how-to-use).
 
 ![audio-transcription demo](./docs/demo.gif)
 
-## Install in Claude Code
+## 📦 Install in Claude Code
 
 ```
 /plugin marketplace add dmitry-do/ai-toolkit-public
 /plugin install audio-transcription@ai-toolkit-public
 ```
 
-## Claude Web
+## 🌐 Claude Web
 
 Claude Code only — not available on claude.ai, because it needs local `mlx-whisper`/`ffmpeg` and
 reads audio files from your machine, neither of which the claude.ai sandbox provides.
 
-## What it does
+## 🧩 What it does
 
 - Transcribes a single file or a whole folder into Markdown with `[start-end] text` segments and a
   `Source` block (filename, backend, model, detected language).
@@ -61,7 +61,7 @@ reads audio files from your machine, neither of which the claude.ai sandbox prov
 The numbers behind every default are measured — see [`evals/`](../../evals) and the "Tested with"
 stamp in the skill.
 
-## How to use
+## 📖 How to use
 
 `ROOT=${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription` in the commands below.
 
@@ -151,7 +151,7 @@ python3 "$ROOT/scripts/transcribe_audio.py" panel.wav --backend faster --beam-si
 python3 "$ROOT/scripts/transcribe_audio.py" panel.wav --backend whisper --whisper-model medium
 ```
 
-## Structure
+## 🗂️ Structure
 
 ```
 plugins/audio-transcription/

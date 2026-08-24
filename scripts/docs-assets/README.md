@@ -9,6 +9,15 @@ python3 scripts/docs-assets/build.py             # all plugins
 python3 scripts/docs-assets/build.py trip-plan   # just one
 ```
 
+Two plugins also carry a **screenshot** of what they produce — `plugins/trip-plan/docs/output.png`
+and `plugins/meeting-notes/docs/transcript-to-summary.png`. Those come from `shots.py`, which needs
+Google Chrome:
+
+```bash
+python3 scripts/docs-assets/shots.py             # both
+python3 scripts/docs-assets/shots.py trip-plan   # just one
+```
+
 The assets are committed, because GitHub renders them in the READMEs. This generator is here so
 they stay editable — change a step in a workflow and you regenerate the picture instead of
 redrawing it.
@@ -23,6 +32,7 @@ redrawing it.
 | `terminal.py` | Terminal renderer: typing, in-place progress lines, soft wrap at the window width, and a single global palette so the GIF stays small. |
 | `spec_diagrams.py` | One function per plugin — the diagram content. |
 | `spec_demos.py` | One function per plugin — the demo script. |
+| `shots.py` | Screenshots. Renders real files in headless Chrome and composes the captures with Pillow. Separate entry point because it needs Chrome. |
 
 ## Conventions
 
@@ -33,5 +43,12 @@ redrawing it.
   as an invisible-here, obvious-on-GitHub tofu box. `build.py` scans the spec files for non-ASCII
   characters and fails the build rather than shipping one.
 - **Pillow only, Python 3.9.** Same constraint as the bundled plugin scripts — it has to run on the
-  macOS system interpreter, with no third-party drawing tools installed.
+  macOS system interpreter, with no third-party drawing tools installed. `shots.py` adds one
+  dependency, Google Chrome, because a screenshot of a real page needs a real browser.
+- **The screenshots are of the committed files.** `shots.py` photographs
+  `plugins/trip-plan/skills/trip-plan/examples/` and
+  `plugins/meeting-notes/skills/meeting-notes/examples/` as they are on disk. It stages two things
+  in a throwaway copy — it pins the clock, so the itinerary shows a day mid-trip rather than a trip
+  that hasn't started, and it re-applies the page's own light palette, because Chrome inherits
+  macOS dark mode. Nothing else is changed, and the committed file is never touched.
 - Assets are ~100–160 KB each; the full set is about 2 MB.
