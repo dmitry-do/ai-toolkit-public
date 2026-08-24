@@ -246,8 +246,51 @@ def trip_plan():
     return c
 
 
+
+def deslop():
+    c = Canvas(1240, 620, "deslop",
+               "a doc that drifts from the code in, a verified and direct one out")
+    c.group(388, 112, 500, 410, "claude-opus-4-8 SUBAGENT  ·  one document at a time")
+
+    c.node("in", 40, 150, 300, 130, "Your document", [
+        "a README, a SKILL.md,",
+        "release notes, API docs",
+    ], kind="io")
+    c.node("src", 40, 340, 300, 150, "Its source of truth", [
+        "the code it describes:",
+        "SKILL.md, scripts,",
+        "hooks, plugin.json",
+    ], kind="io")
+    c.node("p1", 408, 150, 460, 160, "Pass 1 · accuracy (first)", [
+        "read the source, then check each claim:",
+        "flags, numbers, defaults, ordering,",
+        "what runs where",
+        "!flag the unverifiable — never invent",
+    ])
+    c.node("p2", 408, 352, 460, 150, "Pass 2 · style (second)", [
+        "lead with the subject, not a teaser",
+        "land the point, don't circle it",
+        "code blocks and real output kept as-is",
+    ])
+    c.node("hum", 908, 150, 292, 150, "humanizer (optional)", [
+        "final AI-tell cleanup,",
+        "only if it's installed",
+    ], kind="ext")
+    c.node("out", 908, 352, 292, 150, "Reworked doc + report", [
+        "corrections: claim -> source,",
+        "flagged claims, style changes",
+    ], kind="io")
+
+    c.edge("in:r", "p1:l", style="accent", off_b=0.28)
+    c.edge("src:r", "p1:l", style="accent", off_b=0.8, label="checked against")
+    c.edge("p1:b", "p2:t", style="accent")
+    c.edge("p2:r", "out:l", style="accent")
+    c.edge("out:t", "hum:b", style="dashed", label="optional")
+    return c
+
 BUILDERS = {
     "audio-transcription": audio_transcription,
+    "deslop": deslop,
     "meeting-notes": meeting_notes,
     "session-cost-stamp": session_cost_stamp,
     "trip-plan": trip_plan,

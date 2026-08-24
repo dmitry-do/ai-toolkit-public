@@ -5,7 +5,7 @@
     "url": "https://github.com/dmitry-do"
   },
   "metadata": {
-    "description": "A curated public subset of Claude Code plugins: trip planning, audio transcription, meeting notes, and a session-cost stamp, plus the audio-transcription eval harness.",
+    "description": "A curated public subset of Claude Code plugins: trip planning, audio transcription, meeting notes, a session-cost stamp, and a documentation deslopper, plus the audio-transcription eval harness.",
     "version": "0.1.0"
   },
   "plugins": [
@@ -40,6 +40,14 @@
       "version": "0.1.0",
       "category": "productivity",
       "keywords": ["claude-code", "statusline", "session", "cost", "context", "hooks", "transcript"]
+    },
+    {
+      "name": "deslop",
+      "source": "./plugins/deslop",
+      "description": "Reworks a document in two passes on claude-opus-4-8: verify every claim against its source, then make the prose direct.",
+      "version": "0.1.0",
+      "category": "writing",
+      "keywords": ["writing", "documentation", "editing", "accuracy", "readme"]
     }
   ]
 }

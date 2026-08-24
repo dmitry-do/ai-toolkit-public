@@ -10,6 +10,7 @@ plugins skip it). Click any plugin below for its own README.
 | 🎙️ [`audio-transcription`](./audio-transcription) | `wav`/`mp3`/`m4a` → timestamped Markdown with Whisper (`mlx-whisper` on Apple Silicon, `openai-whisper` elsewhere). | Mine |
 | 📝 [`meeting-notes`](./meeting-notes) | Raw transcripts in `rec/` → readable meeting summaries, one isolated subagent per transcript. | Mine |
 | 🧾 [`session-cost-stamp`](./session-cost-stamp) | At session end, stamps worked-time, context %, and cost into the transcript as the session title (shows on `--resume`, persists in the file). Requires a statusLine that writes the stash. | Mine |
+| 🧹 [`deslop`](./deslop) | Reworks a document in two passes on `claude-opus-4-8` — verify every claim against its source, then make the prose direct. Bundled agent pins the model; one isolated subagent per document. | Mine |
 
 ## 📦 Install
 
@@ -28,6 +29,7 @@ plugins/<name>/
   skills/<name>/SKILL.md        # the skill itself (absent in hook-only plugins)
   skills/<name>/scripts/        # bundled scripts (audio-transcription, trip-plan)
   skills/<name>/reference/       # reference docs (trip-plan)
+  agents/<name>.md               # bundled subagent, pins its model (deslop)
   hooks/hooks.json               # lifecycle hooks (session-cost-stamp)
   scripts/                       # hook + statusline scripts (session-cost-stamp)
 ```

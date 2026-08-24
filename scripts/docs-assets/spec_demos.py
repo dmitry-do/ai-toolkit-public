@@ -240,8 +240,49 @@ def trip_plan():
     return t
 
 
+
+def deslop():
+    t = Terminal("deslop")
+    t.ask("/deslop widgetcache/README.md")
+    t.say(["Its source of truth is cache.py. Dispatching a claude-opus-4-8 subagent to check",
+           "every claim against it, then make the prose direct — accuracy first."])
+    t.blank()
+    t.type("sed -n '3p' widgetcache/cache.py")
+    t.outfast([
+        "{w}DEFAULT_TTL = 300{/}  {d}# seconds; override per call with ttl=, or globally --ttl{/}",
+    ])
+    t.blank()
+    t.write("{d}# Pass 1 - accuracy{/}")
+    t.out([
+        "   {y}CORRECTIONS{/}",
+        "     \"cached for ten minutes by default\"  {c}->{/}  source default is 300 s = 5 min (cache.py:3)",
+        "     \"turn caching off per call\"          {c}->{/}  the source names it: no_cache=True (cache.py:7)",
+        "   {y}FLAGGED{/}",
+        "     \"a hundred times a minute\"  {c}->{/}  no such figure in the source; cut",
+    ], 420)
+    t.blank(1300)
+    t.clear()
+    t.write("{d}# Pass 2 - style: lead with the subject, drop the teaser and the promo{/}")
+    t.blank()
+    t.outfast([
+        "{r}-Ever notice how the same request hammers your API a hundred times a minute?{/}",
+        "{r}-widgetcache is here to change all that. It wraps your calls in a blazing-fast,{/}",
+        "{r}-rock-solid, drop-in cache — so your app stays fast, your costs stay low...{/}",
+        "{r}-Responses are cached for ten minutes by default...{/}",
+        "{g}+widgetcache memoises a function call in memory, keyed by a `key` you supply:{/}",
+        "{g}+within the TTL a repeated call returns the stored value instead of re-running.{/}",
+        "{g}+{/}",
+        "{g}+Values are cached for five minutes by default (`DEFAULT_TTL = 300`); pass `ttl=`{/}",
+        "{g}+to change it, or `no_cache=True` to skip the cache for one call.{/}",
+    ])
+    t.blank()
+    t.say(["Two facts corrected against cache.py, one made-up figure cut, the teaser gone.",
+           "humanizer is installed — want me to run it over the result for any AI tells?"])
+    return t
+
 BUILDERS = {
     "audio-transcription": audio_transcription,
+    "deslop": deslop,
     "meeting-notes": meeting_notes,
     "session-cost-stamp": session_cost_stamp,
     "trip-plan": trip_plan,
