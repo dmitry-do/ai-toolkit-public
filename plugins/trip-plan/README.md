@@ -7,8 +7,8 @@ screen and works with no signal.
 
 ## 🎬 Demo
 
-A broken day caught by the checker, the reorder that fixes it, the privacy scan blocking a build,
-and the same build succeeding once the codes are gone.
+A real run: trip-plan reads its skill first, flags the New Year closures that reshape a fortnight
+in Tokyo, asks what matters before drafting, then writes the 14-day itinerary as an artifact.
 
 ![trip-plan demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-demo.png)
 
