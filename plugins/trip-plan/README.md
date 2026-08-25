@@ -1,62 +1,42 @@
 # 🗺️ trip-plan
 
-trip-plan turns a list of places and dates into a day-by-day itinerary, ordered around
-opening hours, travel time, and fixed bookings. It can also audit a plan you already have,
-and it ships the result two ways: a Markdown plan you can edit, and an installable app that
-lives on your home screen and works with no signal.
+trip-plan turns a list of places and dates into a day-by-day itinerary, ordered around opening
+hours, travel time, and fixed bookings. It can also audit a plan you already have, and it ships
+the result two ways: a Markdown plan you can edit, and an installable app that lives on your home
+screen and works with no signal.
 
 ## 🎬 Demo
 
-A broken day caught by the checker, the reorder that fixes it, the privacy scan blocking a
-build, and the same build succeeding once the codes are gone. Walked through step by step in
-[How to use](#how-to-use).
+A broken day caught by the checker, the reorder that fixes it, the privacy scan blocking a build,
+and the same build succeeding once the codes are gone.
 
-![trip-plan demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-demo.gif)
+![trip-plan demo](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-demo.png)
 
 ## ⚙️ How it works
 
 ![How trip-plan works](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-how-it-works.png)
 
-The skill has three phases — create, review, and deliver. On a new trip they run in that
-order, but each one also stands on its own, so the skill enters at whichever the request
-asks for: draft a plan, audit a plan you already wrote, or build an existing plan into a
-file and an app.
+Three phases — create, review, deliver. On a new trip they run in order, but each stands on its
+own, so the skill enters at whichever the request asks for.
 
-**Create builds the itinerary in layers, because each layer constrains the next.** Fixed
-anchors go first (timed tickets, trains, sunset, weekly closing days), since they can't
-move. Stops are then clustered by neighbourhood and assigned to dates around those anchors;
-inside a cluster they're ordered by walking distance; dwell time is set last. When a cluster
-doesn't fit the day, a stop is cut rather than compressing everything by 20%. Checking a
-stop's closing day before you assign it to a date is the single most common fix for a plan
-that otherwise looks fine.
-
-**`route_check.py` turns "this day looks tight" into an arithmetic answer.** It runs geometry
-and arithmetic over the day — closing days, arrival times, anchor buffers, day overflow,
-zig-zags — so it catches what the eye misses. Its zig-zag suggestion is geometry alone, so
-re-run the check after any reorder: the shorter route often lands a museum after it closes.
-
-**`scrub_check.py` keeps private data out of a file that gets shared.** The plan is emailed,
-synced, left open on a train table, and published to a URL, so it can't carry booking
-references, door codes, or personal numbers. The scanner blocks on a keyword sitting next to
-a value, which passes `code in your password manager` and stops `door code 4829`.
-`build_pwa.py` runs it first and refuses to build a leaky file, and the report masks the
-value it found, so the scan output is itself safe to paste.
+- **Create** builds the itinerary in layers, because each layer constrains the next: fixed anchors
+  first (timed tickets, trains, sunset, weekly closing days), then stops clustered by neighbourhood,
+  ordered by walking distance, with an honest dwell time on each. Every day opens with a one-line
+  *why this order*, so the reasoning is on the page rather than buried.
+- **Review** audits a plan you already have against the same rules and says plainly what's broken —
+  a stop on its closing day, a dinner you arrive at 27 minutes late — then ranks cuts by regret.
+- **Deliver** locks the plan and hands you both artifacts. A feasibility check turns "this day looks
+  tight" into an arithmetic answer, and a privacy scan runs *inside* the build and refuses a file
+  that carries a booking reference or door code — masking the value even in its own report.
 
 ## 📱 What you get: Markdown, then an app
 
 ![The Markdown plan, and the app built from it](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-itinerary.png)
 
-One plan, two artifacts. **The Markdown** is the version you edit: a section per day, each
-opening with the constraint that set the order, so the reasoning is on the page rather than
-buried. **The app** is that same plan built into a
-[Progressive Web App](https://web.dev/articles/what-are-pwas) — one self-contained HTML file
-wrapped with a manifest, a service worker, and icons, zipped as `dist.zip`. Installed to a
-home screen it opens full screen with no browser chrome, works offline, opens on today's
-card, and folds away the stops you've already passed.
-
-That week is a real plan the skill's own tools produced and passed, not a mockup: seven days
-sequenced by the rules above, `route_check.py` clean on every one of them, and
-`scrub_check.py` clean on the HTML the phone is showing.
+One plan, two artifacts. **The Markdown** is the version you edit, a section per day. **The app** is
+that same plan built into a [Progressive Web App](https://web.dev/articles/what-are-pwas) — one
+self-contained file that installs to a home screen, opens full screen, works offline, opens on
+today's card, and folds away the stops you've already passed.
 
 ## 📦 Install in Claude Code
 
@@ -65,234 +45,11 @@ sequenced by the rules above, `route_check.py` clean on every one of them, and
 /plugin install trip-plan@ai-toolkit-public
 ```
 
-## 🌐 Install in Claude Web
+## 🌐 Claude Web
 
-All three phases work on claude.ai, the build and the deploy included. The scripts are
-stdlib-only Python 3, so `route_check.py`, `scrub_check.py` and `build_pwa.py` run in Claude Web's
-container the same as in Claude Code, producing `dist/` and `dist.zip`. Publishing runs there too:
-wherever a shell can run Wrangler — Claude Code or Claude Web's container — the skill deploys the
-built folder and reads the live URL back. Handing you `dist.zip` to upload at
-[Cloudflare Drop](https://www.cloudflare.com/drop/) yourself is the fallback, used only when
-there's no shell to run Wrangler or the sandbox blocks outbound traffic to Cloudflare — about ten
-seconds either way.
+All three phases work on claude.ai, the build and the deploy included — package the skill folder
+with `scripts/package-skill.sh trip-plan` and upload it in **Customize → Skills**. Wherever a shell
+can run Wrangler, the skill deploys the built folder and reads the live URL back; otherwise it hands
+you `dist.zip` to drop on [Cloudflare Drop](https://www.cloudflare.com/drop/) yourself.
 
-Package the skill folder:
-
-```bash
-scripts/package-skill.sh trip-plan        # writes dist/trip-plan-skill.zip
-```
-
-Then in claude.ai: **Customize → Skills → Add → Create skill → Upload a skill**, and select the zip.
-
-## 🧩 What it does
-
-Three phases, and the skill picks the one the request asks for:
-
-- **Create** — drafts a day-by-day itinerary as Markdown you can edit. Anchors first (timed
-  tickets, trains, sunset, weekly closures), then stops clustered by neighbourhood, then
-  ordered by walking distance inside each cluster, with an honest dwell time on every stop.
-  Each day opens with a one-line *why this order* so the reasoning is arguable, not just the
-  output.
-- **Review** — audits an existing plan against the same rules and says plainly what's broken:
-  a stop sitting on its closing day, a day that crosses the city four times, a dinner you
-  arrive at 27 minutes late. Cuts are ranked by regret rather than softened.
-- **Deliver** — the locked Markdown becomes one self-contained HTML file (opens offline from
-  Files, no server), then the same file wrapped as an installable
-  [PWA](https://web.dev/articles/what-are-pwas) with a manifest, service worker, and icons,
-  zipped as `dist.zip`. Today's day-card opens on load; stops already past fold away.
-
-## 🔒 Privacy is a build step, not a promise
-
-The plan carries locations, times, prices, and ratings. It never carries booking references,
-door codes, passport numbers, card numbers, or personal contact details, because the file
-gets emailed, synced, left open on a train table, and published to a URL anyone with the link
-can read.
-
-The rule is enforced, not trusted: `build_pwa.py` runs `scrub_check.py` first and refuses to
-build a leaky file. The scanner blocks on a keyword next to something value-shaped, so
-`code in your password manager` passes and `door code 4829` doesn't.
-
-## 📖 How to use
-
-`SK="${CLAUDE_PLUGIN_ROOT}/skills/trip-plan"` in the commands below. The skill picks its phase
-from what you ask for; you don't select one.
-
-### 1. Create: describe the trip
-
-> "four days in Osaka, 27–30 November, staying near Umeda, arriving 14:00 on the 27th. We want food
-> markets, one museum, and a proper kaiseki dinner. Balanced pace."
-
-It asks once for anything genuinely missing, then drafts day by day. Each day opens with the
-constraint that set the order, so you can argue with the reasoning rather than guess at it:
-
-```markdown
-# 🏯 Osaka — Thursday 27 November
-
-**Duration:** 08:30 – 21:30
-**Home base:** Hotel near Umeda
-**Why this order:** Nakanoshima shuts at 17:00 and closes Mondays, so it anchors the middle of the
-day and everything else runs north to south from it.
-
----
-
-## ☕ 09:00 — Mel Coffee Roasters
-
-Small roaster, ten minutes off the route south. Worth the detour before the museum opens.
-
-📍 4.5 · 1,200+ reviews
-🚶 12 min from the hotel
-⏱️ Suggested time: 40 min
-```
-
-Never asked for, and never stored: booking references, door codes, passport or card numbers.
-
-### 2. Check the day arithmetically, not by eye
-
-Write the day out and run it. Only `name` is required per stop; every check runs on whatever fields
-are present:
-
-```json
-{"date": "2026-11-30", "home_base": [34.7025, 135.4959],
- "day_start": "09:00", "day_end": "20:00",
- "stops": [{"name": "Nakanoshima Museum", "at": "10:00", "dwell": 90,
-            "coords": [34.6923, 135.4917], "hours": "10:00-17:00",
-            "closed": ["Mon"], "anchor": false}]}
-```
-
-```bash
-python3 "$SK/scripts/route_check.py" day.json
-```
-
-```
-Checking day.json, 1 day(s)
-  2026-11-30  ERROR  closed         Nakanoshima Museum is closed on Mon
-  2026-11-30  ERROR  tight link     Amerikamura record dig to Sumiyoshi Taisha: leaving 14:35, 37 min transit, arrives 15:11, 27 min late
-  2026-11-30  ERROR  anchor buffer  Kaiseki booking is an anchor with 1 min of slack, 30 wanted
-  2026-11-30  ERROR  day overflow   670 min of stops and travel in a 660 min day, cut about 10 min
-  2026-11-30  warn   detour         Sumiyoshi Taisha adds 11.6 km between Amerikamura record dig and Kuromon Ichiba dinner, move it or drop it
-
-7 problem(s) in the order. Reordering is free and usually fixes more than
-cutting stops does, so try the sequence before dropping anything.
-```
-
-Errors mean the order is wrong. Warnings are yours to weigh. Reorder and re-run:
-
-```
-Checking day.json, 1 day(s)
-  2026-11-27  warn   tight link     Mel Coffee Roasters to Nakanoshima Museum leaves 9 min of slack
-  2026-11-27  warn   zig-zag        2.7 km of 14.4 km comes back on itself, check hours before applying
-Order holds: nothing shut, nothing late, no day over its hours.
-```
-
-What it can't tell you is whether the day is worth doing. Two temples in a row passes every check
-and still reads as one temple too many.
-
-### 3. Review: hand it a plan someone already wrote
-
-> "here's our Kyoto itinerary, tear it apart"
-
-It web-searches current hours and transit times (plans go stale fast), transcribes each day into
-the JSON above, runs the same checker, and then cuts by regret rather than politeness:
-
-- **Strong regret risks** — irreplaceable, seasonal, hard to book
-- **Already covered well** — confirm what's solid
-- **Skippable if time runs short** — nice but generic
-- **Trade-offs** — drop X to free time for Y
-
-### 4. Deliver: build the file and the app
-
-The privacy scan runs first, inside the build, and refuses to produce anything leaky:
-
-```bash
-python3 "$SK/scripts/build_pwa.py" --html itinerary.html --out dist \
-  --name "Osaka, November 2026" --short-name "Osaka" \
-  --theme "#b5533c" --bg "#faf6ef" --initials OS
-```
-
-```
-  line 2     BLOCK  access code or password  Door code 4***       keep the fact, drop the code: "code in your password manager"
-  line 5     BLOCK  booking reference        Confirmation X7**PQ  write "booked, ref in email" and leave the code out
-
-6 blocking finding(s). An itinerary carries locations, times, prices and
-notes. Booking codes, door codes and personal details live in the traveller's
-email or password manager, not in a file that gets shared and published.
-
-Nothing was built. Fix the file above, or rerun with --allow-pii if you've checked each finding is public venue information.
-```
-
-Note the values are masked even in the report. Replace the codes with where to find them, and the
-same command builds:
-
-```
-  line 4     check  secret wording  password  fine on its own, check no code follows it
-
-No blocking findings. Confirm the flagged items are public venue details.
-Built dist (build 1c2eec50f9)
-  icons/apple-touch-icon.png            1836 bytes
-  icons/icon-192.png                    1928 bytes
-  icons/icon-512.png                    5469 bytes
-  icons/icon-maskable-512.png           2658 bytes
-  index.html                            2995 bytes
-  manifest.webmanifest                   849 bytes
-  sw.js                                 2243 bytes
-Zipped: dist.zip (11388 bytes, files at zip root)
-Deploy this directory or the zip. index.html sits at the root, as Drop expects.
-```
-
-Wherever a shell can run Wrangler — Claude Code, or Claude Web's container — the skill publishes it
-for you, since Wrangler deploys a folder without needing a Cloudflare account:
-
-```bash
-npm exec --yes wrangler@latest -- deploy ./dist \
-  --name tokyo-december-2026 --temporary --compatibility-date 2026-08-24   # today's date
-```
-
-You get a live `workers.dev` URL and a claim URL. The claim URL expires in an hour and grants
-ownership of the deployment, so it isn't for sharing. When no shell is available, or the sandbox
-blocks Cloudflare, the skill hands you `dist.zip` to drop onto
-[Cloudflare Drop](https://www.cloudflare.com/drop/) instead: about ten seconds, same result.
-
-Either way it installs to a home screen. Today's day-card opens on load; stops already past fold
-away.
-
-### 5. Run the fixtures if you change anything
-
-```bash
-python3 "$SK/tests/run_tests.py"
-```
-
-```
-  pass  scrub: the phrasing SKILL.md recommends does not block
-  pass  scrub: real codes and numbers still block
-  pass  scrub: the masked report never prints the value
-  pass  scrub: --allow narrows one category without disarming the rest
-  pass  route: a day that holds up passes
-  pass  route: closing day, late links, anchor buffer and overflow all caught
-  pass  route: half-filled days are checked, not rejected
-  pass  build: --out cannot delete the directory holding the itinerary
-  pass  build: a foreign non-empty directory is refused, its own output is reused
-  pass  build: injection is idempotent and the worker guards what it caches
-  pass  build: a leaky itinerary stops the build before anything is written
-
-11 passed, 0 failed
-```
-
-## 🗂️ Structure
-
-```
-plugins/trip-plan/
-├── .claude-plugin/plugin.json      # marketplace manifest
-├── README.md                       # this file
-└── skills/trip-plan/
-    ├── SKILL.md                    # sequencing rules, review mode, the privacy rule
-    ├── reference/
-    │   ├── deliver.md              # HTML build, PWA packaging, Cloudflare Drop deploy
-    │   └── style.md                # visual direction for the itinerary page
-    ├── scripts/
-    │   ├── route_check.py          # day feasibility checker
-    │   ├── scrub_check.py          # PII / booking-code scanner
-    │   └── build_pwa.py            # HTML → installable PWA + zip
-    └── tests/
-        ├── run_tests.py            # 11 fixture cases, no framework
-        └── fixtures/               # a clean day, a broken day, a safe page, a leaky page
-```
+Mine, MIT-licensed (see the root [LICENSE](../../LICENSE)).
