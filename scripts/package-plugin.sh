@@ -41,13 +41,8 @@ for NAME in "$@"; do
   if command -v claude >/dev/null 2>&1; then
     claude plugin validate "$DIR" >/dev/null || { echo "error: $NAME failed 'claude plugin validate'" >&2; exit 1; }
   fi
-  # claude.ai's plugin upload rejects paths with spaces, brackets and similar characters.
-  BAD="$(cd "$DIR" && find . -name .DS_Store -prune -o -name __pycache__ -prune -o -print | sed 's|^\./||' | LC_ALL=C grep -E '[^A-Za-z0-9._/@+-]' || true)"
-  if [ -n "$BAD" ]; then
-    echo "error: $NAME has paths claude.ai will reject (use letters, digits, . _ - only):" >&2
-    echo "$BAD" | sed 's/^/  /' >&2
-    exit 1
-  fi
+  # Rules claude.ai's upload enforces that `claude plugin validate` does not.
+  python3 "$ROOT/scripts/check-claude-ai.py" "$DIR" >&2 || { echo "error: $NAME would be rejected by claude.ai" >&2; exit 1; }
   VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$DIR/.claude-plugin/plugin.json")"
   OUT="$ROOT/dist/$NAME-$VERSION.zip"
   rm -f "$OUT"
