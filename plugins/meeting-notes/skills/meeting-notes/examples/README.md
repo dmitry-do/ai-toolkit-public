@@ -3,9 +3,10 @@
 One real input → real output, so you can see what the skill produces before running it. The
 meeting is fictional (no real people or company), so there's nothing to anonymise.
 
-- **Input:** [`rec/20260605 1400 Transcription [EN].txt`](./rec/) — a raw ~2.5-minute product-sync
+- **Input:** [`rec/20260605_1400_Transcription_EN.txt`](./rec/20260605_1400_Transcription_EN.txt) — a raw ~2.5-minute product-sync
   transcript, complete with the disfluencies a real recording carries ("um", "yeah okay", false
-  starts).
+  starts). Real recordings follow the `YYYYMMDD HHMM Transcription [LANG].txt` convention; this copy
+  uses underscores because claude.ai rejects plugin files with spaces or brackets in their names.
 - **Output:** [`summaries/2026-06-05_onboarding-redesign-sync.md`](./summaries/2026-06-05_onboarding-redesign-sync.md)
   — the summary the skill produces, after the optional `humanizer` pass from step 3 of the workflow (run here because `humanizer` was installed).
 

@@ -380,7 +380,7 @@ def trip_plan():
 def meeting_notes():
     """A transcript on the left, the summary it turns into on the right."""
     ex = PLUGINS / "meeting-notes" / "skills" / "meeting-notes" / "examples"
-    src = ex / "rec" / "20260605 1400 Transcription [EN].txt"
+    src = ex / "rec" / "20260605_1400_Transcription_EN.txt"
     out_md = ex / "summaries" / "2026-06-05_onboarding-redesign-sync.md"
 
     left = text_pane(excerpt(src, 1, 10), 452, 620, kind="txt", accent=T.ACCENT)
@@ -390,7 +390,7 @@ def meeting_notes():
     s = Sheet(1000, 800, "meeting-notes",
               "one transcript in, one summary out, in its own subagent")
 
-    s.label(40, 92, "rec/20260605 1400 Transcription [EN].txt",
+    s.label(40, 92, "rec/20260605_1400_Transcription_EN.txt",
             size=12.5, colour=T.ACCENT, mono=True, bold=True)
     s.card((40, 118, 492, 738))
     s.paste(left, 40, 118, radius=10)

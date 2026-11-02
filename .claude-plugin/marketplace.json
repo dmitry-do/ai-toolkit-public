@@ -29,7 +29,7 @@
       "name": "meeting-notes",
       "source": "./plugins/meeting-notes",
       "description": "A folder of transcripts into one readable summary per meeting: TLDR, decisions, and action items with owners.",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "category": "productivity",
       "keywords": ["meetings", "transcripts", "notes"]
     },
