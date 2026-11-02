@@ -26,7 +26,10 @@ Input: one day object, a list of them, or {"days": [...]}.
 Only `name` is required. Every check runs on the stops that carry the fields it
 needs and stays quiet about the rest, so a half-filled day still gets whatever
 can be checked. `travel_min` overrides the distance estimate when you have a real
-number from Maps.
+number from Maps or a timetable, in both the link check and the day total. On the
+first stop it is the leg from home_base. A day-level `return_min` is the leg back.
+A leg over 30 km with no travel_min gets a warning instead of a guess, because
+city-transit speed on an intercity train leg reports errors that are not there.
 
 Exit codes: 0 clean or warnings only, 1 errors present.
 
@@ -49,6 +52,7 @@ WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 STREET_FACTOR = 1.35   # straight-line km to actual pavement
 TRANSIT_KMH = 18.0     # door to door, city rail or bus
 TRANSIT_OVERHEAD = 7   # minutes of platform, ticket and waiting
+LONG_LEG_KM = 30.0     # past this, city-transit speed is a guess: ask for travel_min
 
 TIME_RE = re.compile(r"^\s*~?\s*(\d{1,2}):(\d{2})\s*([AaPp])?\.?[Mm]?\.?\s*$")
 
@@ -186,6 +190,13 @@ def check_day(day, walk_kmh, buffer_min):
             elif s.get("coords") and prev[2]:
                 km = haversine(prev[2], s["coords"])
                 move, mode = travel_minutes(km, walk_kmh)
+                if km > LONG_LEG_KM:
+                    # City-transit speed on a Shinkansen leg gives a false
+                    # "late" error. Ask for the real number instead.
+                    out.append(("warn", "long leg",
+                                "%s to %s is %d km in a straight line, add travel_min"
+                                % (prev[0], name, round(km))))
+                    move, mode = None, None
             else:
                 move, mode = None, None
             if move is not None and leave is not None:
@@ -211,14 +222,40 @@ def check_day(day, walk_kmh, buffer_min):
             prev = (name, None, s.get("coords"))
 
     # 3. Dwell plus travel against the hours actually available.
+    # Each leg uses the stop's travel_min when it has one, the same number that
+    # step 2 uses. An earlier version estimated every leg from coordinates at
+    # city-transit speed here, so a day trip with real train times passed step 2
+    # and still failed this step by hours. The first stop's travel_min is the leg
+    # from home_base, and the day's return_min is the leg back.
     coords = [s["coords"] for s in stops if s.get("coords")]
     home = day.get("home_base")
     dwell_total = sum(int(s.get("dwell") or 0) for s in stops)
     move_total = 0.0
-    if len(coords) > 1:
-        legs = [home] + coords + [home] if home else coords
-        for i in range(len(legs) - 1):
-            move_total += travel_minutes(haversine(legs[i], legs[i + 1]), walk_kmh)[0]
+    here = home
+    for s in stops:
+        if s.get("travel_min") is not None:
+            move_total += float(s["travel_min"])
+        elif s.get("coords") and here is not None:
+            km = haversine(here, s["coords"])
+            if km <= LONG_LEG_KM:
+                move_total += travel_minutes(km, walk_kmh)[0]
+            elif s is stops[0]:
+                # Later long legs are already reported by step 2.
+                out.append(("warn", "long leg",
+                            "home_base to %s is %d km in a straight line, add travel_min"
+                            % (s.get("name", "the first stop"), round(km))))
+        if s.get("coords"):
+            here = s["coords"]
+    if day.get("return_min") is not None:
+        move_total += float(day["return_min"])
+    elif home and here is not None and here is not home:
+        km = haversine(here, home)
+        if km <= LONG_LEG_KM:
+            move_total += travel_minutes(km, walk_kmh)[0]
+        else:
+            out.append(("warn", "long leg",
+                        "the way back to home_base is %d km in a straight line, add return_min"
+                        % round(km)))
     start = parse_time(day.get("day_start")) or parse_time(stops[0].get("at"))
     end = parse_time(day.get("day_end"))
     if end is None and parse_time(stops[-1].get("at")) is not None:

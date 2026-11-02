@@ -4,13 +4,13 @@ These check that the **skill behaves**: that it sequences before it writes, chec
 with a script instead of by eye, tells the truth in review mode, and refuses to publish a file
 that still carries a door code.
 
-Unlike the prompt-only skills here, this plugin ships its own deterministic harness — 11 fixture cases in
+Unlike the prompt-only skills here, this plugin ships its own deterministic harness — 19 fixture cases in
 [`tests/run_tests.py`](../../plugins/trip-plan/skills/trip-plan/tests/run_tests.py) covering
-`route_check.py`, `scrub_check.py`, and `build_pwa.py`. Those prove the *scripts* work. The
+`route_check.py`, `scrub_check.py`, `edit_plan.py`, `sun_times.py`, and `build_pwa.py`. Those prove the *scripts* work. The
 scenarios below cover the part no fixture can reach: whether the model actually reaches for them.
 
 ```bash
-python3 ../../plugins/trip-plan/skills/trip-plan/tests/run_tests.py   # 11 cases, no deps
+python3 ../../plugins/trip-plan/skills/trip-plan/tests/run_tests.py   # 19 cases, no deps
 ```
 
 Each scenario is input → expected behavior → verdict criterion. Run them by hand; the trigger
@@ -40,18 +40,18 @@ set at the bottom is automated in [`../behavioral/`](../behavioral/README.md).
 
 ### S5 — Runs `route_check.py` instead of eyeballing the day
 - **Input:** Any drafted or revised day.
-- **Expected:** Transcribes the day to JSON and runs the checker before showing the plan.
-- **Verdict:** Pass if the check actually runs; fail if the plan is presented on vibes. "This day looks tight" is the failure mode the script exists to replace.
+- **Expected:** Transcribes the day to JSON and runs the checker before showing the plan, and says the result in the reply ("route_check: clean" or the errors left).
+- **Verdict:** Pass if the check actually runs and its result is reported; fail if the plan is presented on vibes, or if "I checked the timings by hand" stands in for the run. "This day looks tight" is the failure mode the script exists to replace.
 
 ### S6 — A zig-zag suggestion is re-checked, not applied
 - **Input:** A day where `route_check.py` warns that visiting B→D in reverse saves 4 km.
 - **Expected:** Reorders, then re-runs the checker. The shorter route often lands a museum after closing time.
 - **Verdict:** Pass if the reordering is re-verified before it's offered; fail if a geometry-only warning is applied as-is.
 
-### S7 — Every day carries a "Why this order"
-- **Input:** Any multi-day plan.
-- **Expected:** Each day opens with one line naming the constraint that set the sequence ("sunset at 20:12 fixes the end, so the day runs north to south").
-- **Verdict:** Pass if the reasoning is stated and specific; fail if it's missing or generic enough to fit any day.
+### S7 — No "Why this order" line unless asked
+- **Input:** Any multi-day plan, with no request for the reasoning.
+- **Expected:** The plan has no "Why this order" line and no Notes block without a fact in it. The constraint behind each day's order goes in the reply, and comes back when the user asks.
+- **Verdict:** Pass if the plan reads like a schedule and the reasons are available on request; fail if every day opens with a reasoning line the user has to scroll past. Changed in 0.2.0: on a 13-day Osaka plan the user deleted these lines as filler in every round.
 
 ### S8 — Options at meals, commitment at sights
 - **Input:** A day with lunch and dinner and four sights.
@@ -60,8 +60,8 @@ set at the bottom is automated in [`../behavioral/`](../behavioral/README.md).
 
 ### S9 — Doesn't invent ratings, prices, or hours
 - **Input:** A destination the model has no current data for.
-- **Expected:** Writes "check before going" rather than a plausible 4.5⭐ and a price band.
-- **Verdict:** Pass if unknowns are marked; fail on any confident number that wasn't in the input or a search result.
+- **Expected:** Leaves the unconfirmed number out of the plan, and says in the reply what it could not confirm. A place that is closed for the dates, or does not exist, is removed without a note in the plan.
+- **Verdict:** Pass if no unconfirmed number reaches the plan and the reply lists what was dropped; fail on any confident number that wasn't in the input or a search result, or on "check before going" notes that fill the plan.
 
 ## Review
 
@@ -79,6 +79,26 @@ set at the bottom is automated in [`../behavioral/`](../behavioral/README.md).
 - **Input:** An itinerary written months ago.
 - **Expected:** Web-searches current hours, prices, and transit times rather than trusting the file.
 - **Verdict:** Pass if it verifies; fail if it reviews the sequence against numbers it never confirmed.
+
+### S19 — A trim pass cuts filler, not the user's places
+- **Input:** "Remove the fluff" on a plan where one lunch option does not fit the train after it, and the user wrote "Do not skip it" on one stop.
+- **Expected:** Cuts generic text only. Keeps the lunch option with a ⚠️ note on the timing, keeps the user's line, and lists any larger cut in the reply for a yes.
+- **Verdict:** Pass if every place and every user-written line survives; fail if the trim deletes them, which is what v37 of the Osaka plan did.
+
+### S20 — Revisions go through `edit_plan.py`
+- **Input:** "Change these four things" on `plan_v37.md`.
+- **Expected:** Writes `plan_v37.md`'s edits to an edits file, runs `edit_plan.py`, gets `plan_v38.md`, reads the link diff, and puts the change list in the reply, not in the file.
+- **Verdict:** Pass if v37 is untouched, every edit matched once, and a "repeat lost a copy" line is investigated; fail on an in-place rewrite or a changelog section in the plan.
+
+### S21 — Stays under the Telegram size limit
+- **Input:** A revision that takes a markdown plan over 65,536 bytes.
+- **Expected:** `scrub_check.py` blocks. The model runs `edit_plan.py --compact-links` first, then cuts filler, and reports the final size.
+- **Verdict:** Pass if the delivered file is at or under 65,536 bytes with every place ID intact; fail if an oversize file is delivered.
+
+### S22 — Split days have an end on both tracks
+- **Input:** A day where the travellers split after lunch and meet for dinner.
+- **Expected:** Each track has a start time, an end time and an end place, then a meeting point and time. No heading claims a move that did not happen.
+- **Verdict:** Pass if both tracks close; fail on a track with no end time.
 
 ## Deliver
 
@@ -114,7 +134,7 @@ set at the bottom is automated in [`../behavioral/`](../behavioral/README.md).
 
 ## What broke and how I fixed it
 
-Five failures recorded in the source, each now pinned by a fixture. The fixtures in
+Seven failures recorded in the source, each now pinned by a fixture. The fixtures in
 `tests/fixtures/` are these incidents, not synthetic cases.
 
 ### F1 — The scanner blocked the phrasing the skill itself recommends
@@ -146,6 +166,18 @@ Five failures recorded in the source, each now pinned by a fixture. The fixtures
 - **Root cause:** Navigation responses were cached without inspecting them.
 - **Fix:** Only `res.ok && !res.redirected && res.type === 'basic'` gets cached, and the cache name is keyed to a hash of the HTML so each rebuild retires the previous cache instead of stranding people on a stale plan.
 - **Covered by:** the test asserting both guards are present in the generated `sw.js`.
+
+### F6 — Day trips failed the day-length check by hours
+- **Symptom:** On every intercity day of a 13-day Osaka plan, `route_check.py` reported a day overflow (985 min of stops and travel in a 720 min Himeji day), while the link check on the same day passed.
+- **Root cause:** The link check used `travel_min`, but the day total re-estimated every leg from coordinates at city-transit speed: 75 km became almost 6 hours each way. The workaround was to delete `home_base` and `coords` from day-trip days, which switched other checks off too.
+- **Fix:** The day total uses `travel_min` per stop and a day-level `return_min`. A leg over 30 km with no real time gets a "long leg" warning instead of a guess. `route_check.py`, step 3.
+- **Covered by:** `day_trip.json` (must pass with real times) and the test that removes them (must warn, not fail).
+
+### F7 — A trim pass deleted what the user wanted
+- **Symptom:** Asked to remove fluff, the model removed a lunch option that did not fit the next train and a "Do not skip it" line the user had written. The user restored both in the next version.
+- **Root cause:** No rule separated filler from the user's own content, so a logic problem became a reason to delete.
+- **Fix:** `SKILL.md`, "Trim passes": cut filler only, keep places and user lines with a ⚠️ note, list larger cuts in the reply for approval.
+- **Covered by:** scenario S19. Not script-testable.
 
 ## Trigger-rate test set
 

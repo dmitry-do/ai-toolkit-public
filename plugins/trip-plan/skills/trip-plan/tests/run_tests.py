@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-run_tests.py - fixtures for the two scripts that can fail quietly.
+run_tests.py - fixtures for the scripts that can fail quietly.
 
-    python3 skills/trip-plan/tests/run_tests.py
+    python3 <this skill's folder>/tests/run_tests.py
 
 Each case is a real incident rather than a synthetic one. The scrub_safe fixture
 is the phrasing SKILL.md tells the model to write, which an earlier build of the
@@ -76,6 +76,36 @@ def _():
     expect(code != 0, "an unknown --allow category should be rejected")
 
 
+@case("scrub: a .md file flags prose em dashes and semicolons, not URLs or code")
+def _():
+    code, out = run("scrub_check.py", FIXTURES / "style_plan.md")
+    expect(code == 0, "style hits should not block:\n%s" % out)
+    expect(out.count("em dash") == 1, "expected one em dash hit:\n%s" % out)
+    expect(out.count("semicolon ") == 1, "expected one semicolon hit:\n%s" % out)
+    code, out = run("scrub_check.py", FIXTURES / "style_plan.md", "--strict")
+    expect(code == 1, "--strict should block on style hits:\n%s" % out)
+    code, out = run("scrub_check.py", FIXTURES / "style_plan.md", "--no-style")
+    expect("em dash" not in out, "--no-style still checked style:\n%s" % out)
+
+
+@case("scrub: a .md file over 65,536 bytes blocks, one at the limit passes")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Path(tmp) / "plan.md"
+        f.write_bytes(b"a" * 65536)
+        code, out = run("scrub_check.py", f)
+        expect(code == 0, "a file at exactly 65,536 bytes blocked:\n%s" % out)
+        f.write_bytes(b"a" * 65537)
+        code, out = run("scrub_check.py", f)
+        expect(code == 1 and "file size" in out, "a 65,537-byte file passed:\n%s" % out)
+        code, out = run("scrub_check.py", f, "--max-bytes", "0")
+        expect(code == 0, "--max-bytes 0 should turn the limit off:\n%s" % out)
+        h = Path(tmp) / "plan.html"
+        h.write_bytes(b"a" * 70000)
+        code, out = run("scrub_check.py", h)
+        expect(code == 0, "HTML should have no default size limit:\n%s" % out)
+
+
 @case("route: a day that holds up passes")
 def _():
     code, out = run("route_check.py", FIXTURES / "day_clean.json")
@@ -92,6 +122,29 @@ def _():
     expect("closed on Mon" in out, "missed the Monday closure:\n%s" % out)
 
 
+@case("route: a day trip with real train times does not overflow")
+def _():
+    # The Osaka trip hit this on every intercity day: travel_min held the real
+    # train time, but the day total re-estimated 75 km at city-transit speed.
+    code, out = run("route_check.py", FIXTURES / "day_trip.json")
+    expect(code == 0, "day trip with travel_min and return_min failed:\n%s" % out)
+    expect("day overflow" not in out, "false overflow on a day trip:\n%s" % out)
+
+
+@case("route: a long leg without travel_min warns instead of guessing")
+def _():
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        day = json.loads((FIXTURES / "day_trip.json").read_text())
+        day.pop("return_min")
+        day["stops"][0].pop("travel_min")
+        f = Path(tmp) / "no_legs.json"
+        f.write_text(json.dumps(day))
+        code, out = run("route_check.py", f)
+        expect(code == 0, "missing travel_min should warn, not fail:\n%s" % out)
+        expect(out.count("long leg") == 2, "expected two long-leg warnings:\n%s" % out)
+
+
 @case("route: half-filled days are checked, not rejected")
 def _():
     with tempfile.TemporaryDirectory() as tmp:
@@ -99,6 +152,77 @@ def _():
         f.write_text('{"date": "2026-11-27", "stops": [{"name": "Somewhere"}]}')
         code, out = run("route_check.py", f)
         expect(code == 0, "a name-only stop should not fail:\n%s" % out)
+
+
+@case("sun: Osaka times match the plan, polar night says none")
+def _():
+    # 06:43 and 16:47 are the times the Osaka plan carried for Nov 28 (astral).
+    code, out = run("sun_times.py", "--tz", "Asia/Tokyo", "--date", "2026-11-28",
+                    "--place", "Osaka", "34.6937", "135.5023")
+    expect(code == 0 and "06:43" in out and "16:47" in out, "Osaka times wrong:\n%s" % out)
+    code, out = run("sun_times.py", "--tz", "Europe/Oslo", "--date", "2026-12-21",
+                    "--place", "Tromso", "69.65", "18.96")
+    expect("none" in out, "polar night should print none:\n%s" % out)
+
+
+PLAN = """# 🇯🇵 Japan (v37)
+
+## Nov 29
+- [Mikimoto](https://www.google.com/maps/search/?api=1&query=Mikimoto%20Pearl%20Island%20Toba%20Mie&query_place_id=ChIJabc) 08:30-17:00
+- [Minato Shokudo](https://www.google.com/maps/search/?api=1&query=Minato%20Shokudo&query_place_id=ChIJdef) lunch
+- Dinner near [Mikimoto](https://www.google.com/maps/search/?api=1&query=Mikimoto%20Pearl%20Island%20Toba%20Mie&query_place_id=ChIJabc)
+"""
+
+
+@case("edit: writes v38, bumps the title, reports a lost repeat link")
+def _():
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "Japan_v37_Telegram.md"
+        src.write_text(PLAN)
+        edits = Path(tmp) / "edits.json"
+        edits.write_text(json.dumps([
+            {"old": "08:30-17:00", "new": "08:30-17:00, ¥1,650"},
+            {"old": "Dinner near [Mikimoto](https://www.google.com/maps/search/?api=1"
+                    "&query=Mikimoto%20Pearl%20Island%20Toba%20Mie&query_place_id=ChIJabc)",
+             "new": "Dinner near Mikimoto"},
+        ]))
+        code, out = run("edit_plan.py", src, edits)
+        dst = Path(tmp) / "Japan_v38_Telegram.md"
+        expect(code == 0 and dst.is_file(), "v38 not written:\n%s" % out)
+        text = dst.read_text()
+        expect(text.startswith("# 🇯🇵 Japan (v38)"), "title not bumped:\n%s" % text[:40])
+        expect("¥1,650" in text, "edit not applied")
+        expect("repeat lost a copy" in out, "lost repeat link not reported:\n%s" % out)
+        expect(src.read_text() == PLAN, "the source version was changed")
+
+
+@case("edit: an edit that does not match exactly once writes nothing")
+def _():
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "plan_v3.md"
+        src.write_text(PLAN)
+        edits = Path(tmp) / "edits.json"
+        edits.write_text(json.dumps([{"old": "Mikimoto](", "new": "X]("}]))
+        code, out = run("edit_plan.py", src, edits)
+        expect(code == 1, "an ambiguous edit was applied:\n%s" % out)
+        expect(not (Path(tmp) / "plan_v4.md").exists(), "a file was written anyway")
+
+
+@case("edit: --compact-links shrinks Maps links and keeps every place ID")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "plan_v1.md"
+        src.write_text(PLAN)
+        code, out = run("edit_plan.py", src, "--compact-links")
+        text = (Path(tmp) / "plan_v2.md").read_text()
+        expect(code == 0, "compaction failed:\n%s" % out)
+        expect("%20" not in text and "query=Mikimoto+Pearl+Island&" in text,
+               "query not shortened:\n%s" % text)
+        expect(text.count("query_place_id=ChIJabc") == 2, "a place ID was lost")
+        expect(len(text.encode()) < len(PLAN.encode()), "nothing was saved")
+        expect("removed" not in out, "compaction was reported as removed links:\n%s" % out)
 
 
 @case("build: --out cannot delete the directory holding the itinerary")

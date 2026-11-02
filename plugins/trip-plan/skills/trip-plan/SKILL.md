@@ -17,7 +17,8 @@ If anything below is missing from the request, ask once before drafting, and onl
 - **Food preferences**, cuisines, dietary needs, budget per meal
 - **Pace**, packed, balanced, or relaxed
 - **Transport defaults**, walking first, transit when it saves real time, taxi only if called out
-- **Hotel breakfast time** if applicable
+- **Hotel breakfast time** if applicable, and the **earliest hotel departure** it allows (for example, breakfast from 06:30 means no train before 07:00). Treat it as a hard limit on every day, day trips included
+- **Split days**, if the travellers sometimes go separate ways: who goes where, and where they meet again
 
 Never ask for booking references, door codes or document numbers. They can't go in the plan (see below), so there's no reason to collect them.
 
@@ -43,7 +44,7 @@ Which cluster lands on which date follows from:
 
 **5. Use theme only where it costs nothing.** A themed run (temple morning, gallery afternoon, ramen crawl, whisky route, brutalist walk) makes a day easier to remember and easier to enjoy, because the stops build on each other instead of resetting. Group by theme when the themed stops already sit near each other. When theme and geography pull apart, geography wins, unless the theme is the reason for the trip. Two contrasting themes in one day beats four unrelated stops.
 
-**6. Write the reason down.** Each day opens with a one-line **Why this order** note naming the constraint that drove it: "Sunset at Marshall Beach at 20:12 fixes the end, so the day runs north to south." That exposes the logic, so the user can argue with the reasoning instead of guessing at the output.
+**6. Keep the reason, show it only when asked.** Know the constraint that set each day's order, because the user will ask when they disagree. Do not print a **Why this order** line in the plan by default. Users who read the plan on the day call it filler. Add it only when the user asks for it, or put the reasons in your reply when you deliver a draft.
 
 ### Ordering self-check
 
@@ -56,10 +57,12 @@ Run this before showing any plan:
 - Each day ends near home base or the next morning's departure point
 - Dwell plus travel per day fits inside the hours actually available, wake to sleep, with the meals already placed
 
-Most of that is arithmetic, so don't do it by eye. Write the day out and run it:
+Most of that is arithmetic, so don't do it by eye. Write the day out and run it.
+The scripts are in the `scripts/` folder next to this SKILL.md. Call them by that
+full path, because the working directory is the user's project, not the skill:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/trip-plan/scripts/route_check.py day.json
+python3 <this skill's folder>/scripts/route_check.py day.json
 ```
 
 ```json
@@ -72,7 +75,14 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/trip-plan/scripts/route_check.py day.json
 
 Only `name` is required, and every check runs on the stops carrying the fields it
 needs, so a day with half the coordinates still gets the closing days checked. Put
-a real Maps number in `travel_min` when you have one and it overrides the estimate.
+a real Maps or timetable number in `travel_min` when you have one and it overrides
+the estimate. On the first stop, `travel_min` is the leg from `home_base`. On a day
+trip, also give the day a `return_min` for the train back. A leg over 30 km with no
+`travel_min` gets a "long leg" warning instead of a guess: add the real time.
+
+Run the check after every change to times or order, and say the result in your
+reply: "route_check: clean" or the errors that are left. Do not replace it with a
+check by hand.
 
 Errors mean the order is wrong: something is shut, an arrival is impossible, an
 anchor has no buffer, or the day doesn't fit its own hours. Warnings are yours to
@@ -86,53 +96,83 @@ passes every check and still reads as one temple too many.
 ## Planning rules
 
 **Timing**
-- Account for real commute time between every stop (walk by default; subway/bus/tram only when it saves >15 min or distance is >2 km)
+- Account for real commute time between every stop (walk by default, subway, bus or tram only when it saves >15 min or the distance is >2 km)
 - Add buffer before any train/flight/show with a fixed start (30 min for trains, longer for flights)
 - Match meal times to local norms, dinner 18:00–20:00, not 17:00
+- Write each commute as mode and minutes only: "🚶 12 min", "🚇 20 min", "🚌 35 min". Do not name lines, exits or transfers. The traveller navigates with a maps app, and a line name adds length without changing what they do. Give the line or train only when it is an anchor: a reserved seat, a train that runs once an hour, or a stop that some trains skip
 
 **Food spacing**
 - Two big meals within 2 hours = bad. Space lunch and dinner by 4+ hours
 - Coffee, cake, or a small snack before or after a meal is fine
-- A morning coffee stop near the first attraction works well; don't force one right after hotel breakfast
+- A morning coffee stop near the first attraction works well. Don't force one right after hotel breakfast
 
 **Choice at decision points**
 - For coffee/lunch/dinner, list **2–3 options near that location** with rating, signature dish, and price band. Let the user pick on the day
+- Put the options in the time slot they belong to: the lunch cell holds the lunch options. Do not collect them in a separate "Potential places" section at the end, and do not write "see below"
+- Give each option one line on what the place is ("a takoyaki stand", "a sento with a cold bath"). The user often does not know the places, and a bare name gives them nothing to choose with
 - For sights, commit to one path unless two are genuine alternatives (then mark both and say "pick one")
+- When you ask the user to choose, use the same rule: say what each place is and what each choice gains or loses
 
 **Bookings & timing-sensitive notes**
-- Flag anything that needs advance booking (Alcatraz, popular onsen, kaiseki, certain shrines, etc.)
+- Flag anything that needs advance booking (Alcatraz, popular onsen, kaiseki, certain shrines, and more)
+- Collect every booking in one **Bookings** list near the top of the plan. Each line is an action with the date it is for, when booking opens, and the booking link: "Reserve Ichiraku (Dec 4). Opens 30 days ahead. [Book](url)"
 - Flag time-of-day constraints (sunset shots, last entry times, market closing)
 - Flag seasonal/weather dependencies (snow roads, peak waterfall flow, cherry blossom windows)
 
 ## Output format
 
-Markdown artifact for the draft and any revisions. Use emojis as section anchors (🏯 ☕ 🍱 🚄 🚶 ⏱️). Per day:
+Markdown file for the draft and any revisions. Use emojis as section anchors (🏯 ☕ 🍱 🚄 🚶 ⏱️). Link each place name to Google Maps, and keep the link every time the place appears. Per day:
 
 ```
-# 🏯 [City] — [Date]
+# 🏯 [City]: [Date]
 
-**Duration:** HH:MM – HH:MM
+**Duration:** HH:MM to HH:MM
 **Home base:** [Hotel/Station]
-**Why this order:** [the constraint that set the sequence, one line]
+🌅 HH:MM · 🌇 HH:MM
 
 ---
 
-## ☕ HH:MM — [Activity name]
+## ☕ HH:MM: [Activity name]
 
-[One-line description of why this stop / what to expect.]
+[One line on what the place is and what to expect.]
 
 📍 Rating · review count (when known)
-🚶 Walking time / 🚇 transit from previous stop
+🚶 12 min from the previous stop
 ⏱️ Suggested time: X min
 
 **Options (pick one):**
-- **Place A** (4.6⭐): signature dish, price band
-- **Place B** (4.5⭐): signature dish, price band
+- **Place A** (4.6⭐): what it is, signature dish, price band
+- **Place B** (4.5⭐): what it is, signature dish, price band
 
 ---
 ```
 
-End each day with a short **Notes** block: bookings required, what to skip if running late, weather backup.
+Add a **Notes** block to a day only when it holds a fact the day depends on: a booking, a closure, a last train. Do not add one to fill space. "What to skip if running late" and a generic weather backup are filler unless the day has a real risk.
+
+**Sunrise and sunset.** Get them from the script, not from memory, and show them as data with no sentence around them:
+
+```bash
+python3 <this skill's folder>/scripts/sun_times.py --tz Asia/Tokyo \
+  --from 2026-11-27 --to 2026-12-08 --place Osaka 34.6937 135.5023
+```
+
+**Split days.** When the travellers go separate ways, give each track its own heading with a start time, an end time and the place where it ends. Then give the meeting point and time:
+
+```
+| ~11:30 | **Split** | She goes to Shinsaibashi (🚇 15 min). He stays in Tennoji |
+
+## 👖 Her track: 11:30 to 17:30, Shinsaibashi
+...
+## ♨️ His track: 11:30 to 17:00, Tennoji
+...
+## 🍽️ 18:00: Together again, dinner at [place]
+```
+
+A track with no end time leaves the other traveller guessing. A heading must say where the traveller is: do not write "Back in Osaka" for a track that never left.
+
+**Weather.** For a trip more than two weeks away, add a short **Weather** section with the monthly normals for each day-trip place: day high, night low, rain days. Say how much colder a mountain stop is than the base. Say that a real forecast is only available about two weeks ahead. Inside two weeks, use the forecast instead and move outdoor clusters to the clear days.
+
+**Size.** Keep every markdown plan at or under 65,536 bytes. Telegram does not open a larger .md file, and long plans pass that limit after many revisions. Measure bytes, not characters. If a plan is close to the limit, shorten the Google Maps links first (see Revising a plan below), then cut filler.
 
 ## Review mode
 
@@ -148,11 +188,32 @@ When the user shares an existing itinerary and asks for a review:
 4. Call out timing problems directly: tight transfers, meals too close together, sights that close before the planned arrival
 5. Don't soften with hedging. "This won't work because the road opens late May, check nps.gov two days before" beats "you may want to consider checking"
 
+### Trim passes
+
+When the user asks to trim, tighten or "remove fluff", cut only filler: generic description, repeated explanation, legends, notes about how the plan was made. A place, an option, or a line the user wrote stays. If one of these has a problem, keep it and add a short ⚠️ note in the plan: "⚠️ May not fit the 13:05 train: ~50 min of walking there and back". List any larger cut you propose in your reply and wait for a yes. In the Osaka plan, a trim pass removed a lunch option and a "Do not skip it" line, and the user had to restore both in the next version.
+
+### Revising a plan
+
+A long plan goes through many versions. Keep every version: write vN+1 next to vN, never over it. Use the edit script, so that each edit must match exactly once and the link check runs every time:
+
+```bash
+python3 <this skill's folder>/scripts/edit_plan.py plan_v37.md edits.json
+```
+
+`edits.json` is a list of `{"old": ..., "new": ..., "count": 1}`. If an edit matches zero times or more than its count, nothing is written. The script changes the version in the first heading and prints the link diff. A dropped place loses its links on purpose. A place that stays keeps every link, repeats included, so read the "repeat lost a copy" lines. `--compact-links` shortens the Google Maps links when the file is near 65,536 bytes, and confirms that every place ID is still there.
+
+Put the list of changes in your reply, not in the plan. A changelog in the file costs bytes and the user deletes it.
+
+After every version, run `route_check.py` if times or order changed, then `scrub_check.py` on the file.
+
 ## What to avoid
 
 - Generic descriptions that read like a guidebook ("vibrant", "rich cultural heritage", "must-visit", "nestled in")
 - Listing every possible thing, curate
-- Making up ratings, prices, or hours when they're not in the input. Say "check before going" instead
+- Making up ratings, prices, or hours when they're not in the input
+- Facts you could not confirm. Remove the claim instead of adding "check before going". In the Osaka plan, an online price and a digital ticket price that no source confirmed both came out
+- Places that are closed for the dates, or do not exist. Leave them out of the plan with no note. Say in your reply what you removed and why
+- Notes about what the plan does not include ("no taxis on this trip"). If a thing is not in the plan, the plan does not need to say so
 - Padding with safety filler ("be sure to stay hydrated", "wear comfortable shoes")
 
 ## What never goes in the plan
@@ -179,6 +240,8 @@ Say once that you've left the details out, then move on. Don't repeat it per sto
 
 The build enforces this rather than trusting it. `scrub_check.py` blocks on a keyword next to something value-shaped: "code in your password manager" passes, "door code 4829" doesn't. A keyword on its own comes back as a note to read, not a block. When a finding turns out to be a venue's public phone number, narrow it with `--allow "phone number"` rather than reaching for `--allow-pii`, which switches off the whole scan.
 
+On a markdown file, `scrub_check.py` also blocks a file over 65,536 bytes and flags em dashes and semicolons in the prose (not in links or code). Rewrite each flagged sentence before you deliver.
+
 ## Calendar integration
 
 If the user asks to add events, use whatever calendar tool the runtime exposes rather than a name from memory. Connector tools get renamed, and a hardcoded one fails silently as a missing capability.
@@ -190,6 +253,6 @@ If the user asks to add events, use whatever calendar tool the runtime exposes r
 
 ## Delivering the plan
 
-When the user wants the plan as a file, an offline app, or a public URL, read `${CLAUDE_PLUGIN_ROOT}/skills/trip-plan/reference/deliver.md` and work from it. Visual direction is in `reference/style.md` beside it.
+When the user wants the plan as a file, an offline app, or a public URL, read `reference/deliver.md` in this skill's folder and work from it. Visual direction is in `reference/style.md` beside it.
 
 Both are worth opening rather than recalling. The build flags, the service worker behaviour and the deploy path are specific enough that a remembered version will be subtly wrong.

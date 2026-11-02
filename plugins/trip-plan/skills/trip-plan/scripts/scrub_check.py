@@ -10,6 +10,10 @@ they are, with the matched value masked so the report itself stays safe to paste
 Usage:
     python3 scripts/scrub_check.py itinerary.html
     python3 scripts/scrub_check.py itinerary.html --strict   # warnings block too
+    python3 scripts/scrub_check.py plan_v12.md               # adds size and style checks
+
+For a .md file it also blocks anything over 65,536 bytes (the Telegram limit,
+change with --max-bytes) and flags em dashes and semicolons in the prose.
 
 Exit codes: 0 clean (warnings allowed), 1 blocking findings present.
 
@@ -82,7 +86,40 @@ FIXES = {
     "phone number": "a venue's public number is fine, a traveller's is not",
     "record locator shape": "check this isn't a PNR or confirmation code",
     "payment card number": "drop it, card numbers never belong here",
+    "file size": "trim it: Telegram does not open a .md file over 65,536 bytes",
+    "em dash": "use a comma, a colon or two sentences",
+    "semicolon": "write two sentences",
 }
+
+# Markdown plans also get a byte limit and a plain-English lint. Telegram refuses
+# a .md file of 65,537 bytes or more (tested Oct 2026: 65,536 opens, one byte more
+# does not, and the characters do not matter). The style checks catch the two
+# marks the plain-English rule bans, which sessions used to grep for by hand.
+MD_SUFFIXES = (".md", ".markdown", ".txt")
+TELEGRAM_MAX_BYTES = 65536
+STYLE_RULES = [
+    ("em dash", re.compile("—")),
+    ("semicolon", re.compile(";")),
+]
+# URLs, inline code and HTML entities carry semicolons that are not prose.
+NOT_PROSE = re.compile(r"\]\([^)]*\)|https?://\S+|`[^`]*`|&#?\w+;")
+
+
+def file_checks(text, size_bytes, max_bytes=0, style=True):
+    """Size and style findings in the same shape as scan_text: (line, severity, category, snippet)."""
+    findings = []
+    if max_bytes and size_bytes > max_bytes:
+        findings.append((0, "block", "file size",
+                         "%s bytes, %s over" % (format(size_bytes, ","),
+                                                format(size_bytes - max_bytes, ","))))
+    if style:
+        for i, line in enumerate(text.splitlines(), 1):
+            prose = NOT_PROSE.sub(lambda m: " " * len(m.group(0)), line)
+            for category, rx in STYLE_RULES:
+                for m in rx.finditer(prose):
+                    a, b = max(0, m.start() - 14), m.end() + 14
+                    findings.append((i, "review", category, " ".join(line[a:b].split())))
+    return findings
 
 
 def luhn(digits):
@@ -182,7 +219,8 @@ def report(findings, strict=False, allow=()):
         print("notes. Booking codes, door codes and personal details live in the traveller's")
         print("email or password manager, not in a file that gets shared and published.")
         return 1
-    print("\nNo blocking findings. Confirm the flagged items are public venue details.")
+    print("\nNo blocking findings. Read each flagged item: venue details are fine,"
+          " style hits need a rewrite.")
     return 0
 
 
@@ -193,18 +231,30 @@ def main():
     ap.add_argument("--allow", action="append", default=[], metavar="CATEGORY",
                     help="stop one category from blocking, e.g. --allow 'phone number'. "
                          "Repeatable. Use after checking each hit, not instead of.")
+    ap.add_argument("--max-bytes", type=int, default=None, metavar="N",
+                    help="block when the file is bigger than N bytes. Default 65536 for "
+                         ".md files (the Telegram limit), off for HTML. 0 turns it off.")
+    ap.add_argument("--no-style", action="store_true",
+                    help="skip the em dash and semicolon checks on .md files")
     args = ap.parse_args()
 
     src = Path(args.path)
     if not src.is_file():
         sys.exit("No such file: %s" % src)
-    known = {c.lower() for c, _, _ in RULES} | {"payment card number"}
+    known = ({c.lower() for c, _, _ in RULES} | {"payment card number"}
+             | {c for c, _ in STYLE_RULES} | {"file size"})
     for a in args.allow:
         if a.strip().lower() not in known:
             sys.exit("Unknown category %r. Known: %s" % (a, ", ".join(sorted(known))))
     print("Scanning %s" % src)
     text = src.read_text(encoding="utf-8", errors="replace")
-    sys.exit(report(scan_text(text), args.strict, args.allow))
+    is_md = src.suffix.lower() in MD_SUFFIXES
+    max_bytes = args.max_bytes if args.max_bytes is not None else (TELEGRAM_MAX_BYTES if is_md else 0)
+    size = src.stat().st_size
+    if max_bytes:
+        print("Size %s of %s bytes" % (format(size, ","), format(max_bytes, ",")))
+    findings = scan_text(text) + file_checks(text, size, max_bytes, style=is_md and not args.no_style)
+    sys.exit(report(findings, args.strict, args.allow))
 
 
 if __name__ == "__main__":

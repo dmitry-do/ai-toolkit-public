@@ -16,18 +16,21 @@ in Tokyo, asks what matters before drafting, then writes the 14-day itinerary as
 
 ![How trip-plan works](https://raw.githubusercontent.com/dmitry-do/ai-toolkit-public/main/docs/assets/trip-plan-how-it-works.png)
 
-Three phases — create, review, deliver. On a new trip they run in order, but each stands on its
+Four phases — create, review, deliver, revise. On a new trip they run in order, but each stands on its
 own, so the skill enters at whichever the request asks for.
 
 - **Create** builds the itinerary in layers, because each layer constrains the next: fixed anchors
   first (timed tickets, trains, sunset, weekly closing days), then stops clustered by neighbourhood,
-  ordered by walking distance, with an honest dwell time on each. Every day opens with a one-line
-  *why this order*, so the reasoning is on the page rather than buried.
+  ordered by walking distance, with an honest dwell time on each. Options sit in the time slot they
+  belong to, each with a line on what the place is, and split days give both travellers an end time.
 - **Review** audits a plan you already have against the same rules and says plainly what's broken —
   a stop on its closing day, a dinner you arrive at 27 minutes late — then ranks cuts by regret.
 - **Deliver** locks the plan and hands you both artifacts. A feasibility check turns "this day looks
   tight" into an arithmetic answer, and a privacy scan runs *inside* the build and refuses a file
   that carries a booking reference or door code — masking the value even in its own report.
+- **Revise** makes each new version from exact edits with `edit_plan.py`, which refuses an edit that
+  matches twice and reports any link that went missing. Markdown plans stay at or under 65,536 bytes, the
+  largest `.md` file Telegram opens.
 
 ## 📱 What you get: Markdown, then an app
 

@@ -1,0 +1,16 @@
+{
+  "date": "2026-12-04",
+  "title": "Himeji day trip from Osaka",
+  "home_base": [34.6787, 135.4936],
+  "day_start": "07:30",
+  "day_end": "19:30",
+  "return_min": 75,
+  "stops": [
+    {"name": "Himeji Castle", "at": "09:00", "dwell": 150, "travel_min": 75,
+     "coords": [34.8394, 134.6939], "hours": "09:00-17:00", "anchor": true},
+    {"name": "Kokoen Garden", "at": "11:45", "dwell": 60,
+     "coords": [34.8373, 134.6907], "hours": "09:00-17:00"},
+    {"name": "Lunch near the station", "at": "13:10", "dwell": 60,
+     "coords": [34.8290, 134.6900], "hours": "11:00-15:00"}
+  ]
+}

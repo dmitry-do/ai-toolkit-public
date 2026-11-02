@@ -64,14 +64,14 @@ In `style.md` next to this file.
 # The scripts live in the plugin, not the project, so call them by full path.
 # --out must be a new or previously-built directory: the build clears it, and it
 # refuses anything it didn't create, including the folder holding the itinerary.
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/trip-plan/scripts/build_pwa.py --html itinerary.html --out dist \
+python3 <this skill's folder>/scripts/build_pwa.py --html itinerary.html --out dist \
   --name "California Coast, May 2026" --short-name "CA Coast" \
   --theme "#b5533c" --bg "#faf6ef" --initials CA
 ```
 
-The build refuses to run when the HTML still holds booking codes, access codes or personal data, so the rule above is enforced rather than remembered. To scan without building, run `python3 ${CLAUDE_PLUGIN_ROOT}/skills/trip-plan/scripts/scrub_check.py itinerary.html`. It's a pattern matcher, so it catches shapes and not meaning: it won't recognise a traveller's name or a home address. Read the file as well. When a finding is genuinely a venue's public detail, narrow it: `--allow "phone number"` keeps every other category blocking. `--allow-pii` disables the scan entirely and should be close to never.
+The build refuses to run when the HTML still holds booking codes, access codes or personal data, so the rule above is enforced rather than remembered. To scan without building, run `python3 <this skill's folder>/scripts/scrub_check.py itinerary.html`. It's a pattern matcher, so it catches shapes and not meaning: it won't recognise a traveller's name or a home address. Read the file as well. When a finding is genuinely a venue's public detail, narrow it: `--allow "phone number"` keeps every other category blocking. `--allow-pii` disables the scan entirely and should be close to never.
 
-Only `--html` is required; name and theme fall back to the `<title>` and sane defaults. Pick `--theme` to match the itinerary's accent colour and `--initials` from the destination, so the home screen icon is recognisable next to other apps. The script needs Python 3.8 and nothing else. `python3 ${CLAUDE_PLUGIN_ROOT}/skills/trip-plan/tests/run_tests.py` covers both scripts if you've changed either.
+Only `--html` is required; name and theme fall back to the `<title>` and sane defaults. Pick `--theme` to match the itinerary's accent colour and `--initials` from the destination, so the home screen icon is recognisable next to other apps. The script needs Python 3.8 and nothing else. `python3 <this skill's folder>/tests/run_tests.py` covers all the scripts if you have changed any of them.
 
 It writes `dist/` with `index.html`, `manifest.webmanifest`, `sw.js`, and four icons (192, 512, maskable 512, apple-touch 180), then zips the whole thing with the files at the zip root, which is the layout Cloudflare Drop expects.
 
