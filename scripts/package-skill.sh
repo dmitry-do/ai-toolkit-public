@@ -3,7 +3,7 @@
 # package-skill.sh — zip a plugin's skill folder for upload to Claude Web.
 #
 # A Claude Web skill is just the skills/<name>/ folder with SKILL.md at the zip
-# root. This produces dist/<name>-skill.zip ready for:
+# root. This produces dist/<name>.zip ready for:
 #   claude.ai -> Customize -> Skills -> Add -> Create skill -> Upload a skill
 #
 # Usage: scripts/package-skill.sh <plugin-name>
@@ -19,7 +19,7 @@ if [ ! -f "$SKILL_DIR/SKILL.md" ]; then
 fi
 
 mkdir -p "$ROOT/dist"
-OUT="$ROOT/dist/$NAME-skill.zip"
+OUT="$ROOT/dist/$NAME.zip"
 rm -f "$OUT"
 # zip from skills/ so the archive contains <name>/SKILL.md (SKILL.md at folder root).
 ( cd "$ROOT/plugins/$NAME/skills" && zip -rq "$OUT" "$NAME" -x '*/.DS_Store' '*/__pycache__/*' '*.pyc' )
