@@ -176,7 +176,9 @@ def pack(dist):
         data = path.read_bytes()
         ctype = TYPES.get(path.suffix.lower(), "application/octet-stream")
         text = None
-        if not ctype.startswith("image/") and ctype != "application/octet-stream":
+        # SVG is text. Sending it as text keeps it out of base64, which is a third
+        # larger and is the part of the payload most likely to be miscopied.
+        if ctype == "image/svg+xml" or (not ctype.startswith("image/") and ctype != "application/octet-stream"):
             try:
                 text = data.decode("utf-8")
             except UnicodeDecodeError:
@@ -193,6 +195,27 @@ def js(value):
     # about a third of the size of \u escapes. U+2028/2029 are legal in modern JS
     # strings but some tools still trip on them, so escape those two.
     return json.dumps(value, ensure_ascii=False).replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+
+
+CHUNK = 1500
+
+
+def js_files(files):
+    """FILES as one entry per line, with long strings cut into "..." + "..." pieces.
+
+    The model reads this file and copies it into the tool call. One 47 KB line
+    is past what a file read shows at once, so it had to be split by hand before
+    it could be copied. Short lines read and copy in order. The SHA-256 check
+    still catches any piece that changes on the way.
+    """
+    def lit(text):
+        parts = [text[i:i + CHUNK] for i in range(0, len(text), CHUNK)] or [""]
+        return " +\n      ".join(js(p) for p in parts)
+
+    rows = []
+    for path, (ctype, kind, body, digest) in files.items():
+        rows.append("    %s: [%s, %s,\n      %s,\n      %s]" % (js(path), js(ctype), js(kind), lit(body), js(digest)))
+    return "{\n" + ",\n".join(rows) + "\n  }"
 
 
 def main():
@@ -226,12 +249,16 @@ def main():
                .replace("__COMPAT__", js(a.compat_date))
                .replace("__TAG__", js(TAG))
                .replace("__HANDLER__", js(HANDLER))
-               .replace("__FILES__", js(files)))
+               .replace("__FILES__", js_files(files)))
     out.write_text(payload + "\n", encoding="utf-8")
 
     size = out.stat().st_size
     print("Packed %d files from %s" % (len(files), dist))
     print("Wrote %s (%d bytes)" % (out, size))
+    binary = [p for p, f in files.items() if f[1] == "b"]
+    if binary:
+        print("Note: %d binary file(s) travel as base64 and make the payload harder to copy: %s"
+              % (len(binary), ", ".join(binary)))
     print("Pass the whole file, unchanged, as `code` to the Cloudflare connector's execute tool.")
     print("Expected URL: https://%s.<account subdomain>.workers.dev/" % a.name)
 

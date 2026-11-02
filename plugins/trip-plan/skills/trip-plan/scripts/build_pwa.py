@@ -9,34 +9,32 @@ Cloudflare Drop or `wrangler deploy` can publish as-is:
       index.html                 (source HTML + injected PWA head tags and SW registration)
       manifest.webmanifest
       sw.js
-      icons/icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png
+      icons/icon.svg, icons/icon-maskable.svg   (emoji or initials, plain text)
     dist.zip                     (same files, zipped at root level)
 
 Usage:
     python3 scripts/build_pwa.py --html itinerary.html --out dist \
         --name "California Coast, May 2026" --short-name "CA Coast" \
-        --theme "#b5533c" --bg "#faf6ef" --initials CA
+        --theme "#b5533c" --bg "#faf6ef" --icon "🌊"
 
 Only --html is required. Everything else is derived from the HTML or defaulted.
 
 Re-running is safe: injected blocks are marked and replaced, so you can edit the
 itinerary and rebuild without accumulating duplicate tags.
 
-No third-party dependencies. Icons are drawn with a small pure-Python PNG writer,
-so this works on any machine with Python 3.8+.
+No third-party dependencies. Icons are SVG text, with no PNG and no base64, so
+the Cloudflare connector payload stays small. Python 3.8+.
 """
 
 import argparse
 import hashlib
 import json
-import math
 import re
 import shutil
 import signal
-import struct
 import sys
 import zipfile
-import zlib
+from html import escape as html_escape
 from pathlib import Path
 
 MARK_HEAD = "trip-plan:pwa-head"
@@ -80,27 +78,15 @@ except ImportError:  # scanner missing, build still works but says so
     report = scan_text = None
 
 # ---------------------------------------------------------------------------
-# Tiny PNG writer (no Pillow required)
+# Icons: plain SVG text, no PNG and no base64
 # ---------------------------------------------------------------------------
+# A PNG icon set added ~12 KB of binary, which the connector payload carries as
+# ~16 KB of base64 that the model has to copy into the tool call by hand. An SVG
+# is a few hundred bytes of text, so the payload stays small and copyable.
 
-
-def write_png(path, pixels, width, height):
-    """pixels: flat bytearray of RGBA, length width*height*4."""
-    raw = bytearray()
-    stride = width * 4
-    for y in range(height):
-        raw.append(0)  # filter type 0 (None)
-        raw += pixels[y * stride:(y + 1) * stride]
-
-    def chunk(tag, data):
-        out = struct.pack(">I", len(data)) + tag + data
-        return out + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-
-    png = b"\x89PNG\r\n\x1a\n"
-    png += chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
-    png += chunk(b"IDAT", zlib.compress(bytes(raw), 9))
-    png += chunk(b"IEND", b"")
-    Path(path).write_bytes(png)
+EMOJI_FONTS = "'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif"
+LETTER_FONTS = "'Helvetica Neue',Arial,sans-serif"
+DEFAULT_ICON = "\U0001F5FA\ufe0f"  # world map emoji
 
 
 def hex_to_rgb(value):
@@ -112,182 +98,35 @@ def hex_to_rgb(value):
     return tuple(int(v[i:i + 2], 16) for i in (0, 2, 4))
 
 
-# ---------------------------------------------------------------------------
-# Signed distance helpers, used for anti-aliased shapes
-# ---------------------------------------------------------------------------
+def is_letters(text):
+    return bool(re.fullmatch(r"[A-Za-z0-9]{1,3}", text))
 
 
-def sd_rounded_rect(px, py, cx, cy, half_w, half_h, radius):
-    qx = abs(px - cx) - (half_w - radius)
-    qy = abs(py - cy) - (half_h - radius)
-    outside = math.hypot(max(qx, 0.0), max(qy, 0.0))
-    inside = min(max(qx, qy), 0.0)
-    return outside + inside - radius
+def svg_icon(text, theme, bg, maskable=False):
+    """One emoji (or 1-3 letters) on a coloured plate.
 
-
-def sd_circle(px, py, cx, cy, r):
-    return math.hypot(px - cx, py - cy) - r
-
-
-def sd_triangle(px, py, a, b, c):
-    def sub(u, v):
-        return (u[0] - v[0], u[1] - v[1])
-
-    def dot(u, v):
-        return u[0] * v[0] + u[1] * v[1]
-
-    def clamp01(t):
-        return 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
-
-    p = (px, py)
-    e0, e1, e2 = sub(b, a), sub(c, b), sub(a, c)
-    v0, v1, v2 = sub(p, a), sub(p, b), sub(p, c)
-
-    def leg(v, e):
-        t = clamp01(dot(v, e) / max(dot(e, e), 1e-9))
-        return (v[0] - e[0] * t, v[1] - e[1] * t)
-
-    p0, p1, p2 = leg(v0, e0), leg(v1, e1), leg(v2, e2)
-    s = 1.0 if (e0[0] * e2[1] - e0[1] * e2[0]) > 0 else -1.0
-    dx = min(dot(p0, p0), dot(p1, p1), dot(p2, p2))
-    dy = min(
-        s * (v0[0] * e0[1] - v0[1] * e0[0]),
-        s * (v1[0] * e1[1] - v1[1] * e1[0]),
-        s * (v2[0] * e2[1] - v2[1] * e2[0]),
+    Maskable icons must survive an aggressive circular crop, so the plate goes
+    full-bleed and the glyph stays inside the middle ~60%.
+    """
+    text = (text or DEFAULT_ICON).strip() or DEFAULT_ICON
+    letters = is_letters(text)
+    if letters:
+        text = text.upper()
+        size = {1: 300, 2: 230, 3: 170}[len(text)] * (0.78 if maskable else 1)
+        font, weight, fill = LETTER_FONTS, ' font-weight="700"', bg
+    else:
+        size = 220 if maskable else 300
+        font, weight, fill = EMOJI_FONTS, "", bg
+    plate = ('<rect width="512" height="512" fill="%s"/>' % theme if maskable else
+             '<rect x="20" y="20" width="472" height="472" rx="104" fill="%s"/>' % theme)
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
+        + plate
+        + '<text x="256" y="270" text-anchor="middle" dominant-baseline="middle" '
+        + 'font-family="%s" font-size="%d"%s fill="%s">%s</text>'
+        % (html_escape(font), size, weight, fill, html_escape(text))
+        + "</svg>\n"
     )
-    return -math.sqrt(dx) * (1.0 if dy > 0 else -1.0)
-
-
-# 5x7 bitmap font, enough for initials (A-Z, 0-9). Each row is 5 bits, MSB left.
-FONT = {
-    "A": [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
-    "B": [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
-    "C": [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
-    "D": [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E],
-    "E": [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F],
-    "F": [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10],
-    "G": [0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F],
-    "H": [0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
-    "I": [0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E],
-    "J": [0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C],
-    "K": [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11],
-    "L": [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F],
-    "M": [0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11],
-    "N": [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11],
-    "O": [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
-    "P": [0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10],
-    "Q": [0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D],
-    "R": [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11],
-    "S": [0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E],
-    "T": [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
-    "U": [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
-    "V": [0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04],
-    "W": [0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11],
-    "X": [0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11],
-    "Y": [0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04],
-    "Z": [0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F],
-    "0": [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E],
-    "1": [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
-    "2": [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F],
-    "3": [0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E],
-    "4": [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
-    "5": [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E],
-    "6": [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E],
-    "7": [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
-    "8": [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E],
-    "9": [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C],
-}
-
-
-def render_icon(size, bg_rgb, fg_rgb, initials=None, maskable=False):
-    """Draw a rounded-square icon with either initials or a map-pin glyph."""
-    px = bytearray(size * size * 4)
-    s = float(size)
-    # Maskable icons must survive an aggressive circular crop, so the plate goes
-    # full-bleed and the glyph stays inside the middle ~60%.
-    if maskable:
-        plate_half, plate_r, glyph_scale = s / 2, 0.0, 0.46
-    else:
-        plate_half, plate_r, glyph_scale = s * 0.46, s * 0.22, 0.62
-
-    cx = cy = s / 2
-    glyph = [c for c in (initials or "").upper() if c in FONT][:3]
-
-    if glyph:
-        cols = len(glyph) * 5 + (len(glyph) - 1)  # 1 blank column between chars
-        cell = (s * glyph_scale) / max(cols, 7)
-        gw, gh = cols * cell, 7 * cell
-        gx0, gy0 = cx - gw / 2, cy - gh / 2
-    else:
-        head_r = s * glyph_scale * 0.30
-        head_cy = cy - s * glyph_scale * 0.14
-        tip = (cx, cy + s * glyph_scale * 0.52)
-        left = (cx - head_r * 0.86, head_cy + head_r * 0.52)
-        right = (cx + head_r * 0.86, head_cy + head_r * 0.52)
-        hole_r = head_r * 0.40
-
-    for y in range(size):
-        fy = y + 0.5
-        row = y * size * 4
-        for x in range(size):
-            fx = x + 0.5
-            d_plate = sd_rounded_rect(fx, fy, cx, cy, plate_half, plate_half, plate_r)
-            a_plate = min(max(0.5 - d_plate, 0.0), 1.0)
-            if a_plate <= 0.0:
-                continue
-
-            if glyph:
-                a_glyph = 0.0
-                col = int((fx - gx0) // cell)
-                rowi = int((fy - gy0) // cell)
-                if 0 <= rowi < 7 and 0 <= col < len(glyph) * 6:
-                    ci, sub = divmod(col, 6)
-                    if sub < 5 and ci < len(glyph):
-                        if FONT[glyph[ci]][rowi] & (1 << (4 - sub)):
-                            a_glyph = 1.0
-            else:
-                d_head = sd_circle(fx, fy, cx, head_cy, head_r)
-                d_tail = sd_triangle(fx, fy, left, right, tip)
-                d_pin = min(d_head, d_tail)
-                d_hole = sd_circle(fx, fy, cx, head_cy, hole_r)
-                a_pin = min(max(0.5 - d_pin, 0.0), 1.0)
-                a_hole = min(max(0.5 - d_hole, 0.0), 1.0)
-                a_glyph = max(a_pin - a_hole, 0.0)
-
-            r = bg_rgb[0] + (fg_rgb[0] - bg_rgb[0]) * a_glyph
-            g = bg_rgb[1] + (fg_rgb[1] - bg_rgb[1]) * a_glyph
-            b = bg_rgb[2] + (fg_rgb[2] - bg_rgb[2]) * a_glyph
-            i = row + x * 4
-            px[i] = int(r)
-            px[i + 1] = int(g)
-            px[i + 2] = int(b)
-            px[i + 3] = int(a_plate * 255)
-    return px
-
-
-def downsample(px, size, target):
-    """Box-filter an RGBA raster down to target x target."""
-    out = bytearray(target * target * 4)
-    step = size / target
-    for y in range(target):
-        y0, y1 = int(y * step), max(int((y + 1) * step), int(y * step) + 1)
-        for x in range(target):
-            x0, x1 = int(x * step), max(int((x + 1) * step), int(x * step) + 1)
-            acc = [0, 0, 0, 0]
-            n = 0
-            for sy in range(y0, y1):
-                base = sy * size * 4
-                for sx in range(x0, x1):
-                    i = base + sx * 4
-                    acc[0] += px[i]
-                    acc[1] += px[i + 1]
-                    acc[2] += px[i + 2]
-                    acc[3] += px[i + 3]
-                    n += 1
-            o = (y * target + x) * 4
-            for k in range(4):
-                out[o + k] = acc[k] // max(n, 1)
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -314,9 +153,7 @@ def head_block(name, short_name, theme, bg):
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="{short_name}">
 <meta name="application-name" content="{short_name}">
-<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512.png">
+<link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
 <style>
 .tp-install{{position:fixed;right:max(12px,env(safe-area-inset-right));
 bottom:calc(12px + env(safe-area-inset-bottom));z-index:9999;display:none;
@@ -456,7 +293,9 @@ def main():
     ap.add_argument("--short-name", help="Home screen label, keep under ~12 characters")
     ap.add_argument("--theme", default="#8a4b3a", help="Accent colour, e.g. #b5533c")
     ap.add_argument("--bg", default="#faf6ef", help="Background/splash colour")
-    ap.add_argument("--initials", help="1-3 letters for the icon, e.g. CA. Omit for a map pin")
+    ap.add_argument("--icon", help="One emoji or 1-3 letters for the home screen icon, e.g. 🚗 or CA "
+                         "(default: a map emoji)")
+    ap.add_argument("--initials", help=argparse.SUPPRESS)  # old name for --icon
     ap.add_argument("--lang", default="en", help="Manifest lang (default: en)")
     ap.add_argument("--zip", dest="zip_path", help="Zip path (default: <out>.zip)")
     ap.add_argument("--no-zip", action="store_true", help="Skip the zip step")
@@ -511,9 +350,8 @@ def main():
         "theme_color": theme,
         "categories": ["travel", "navigation"],
         "icons": [
-            {"src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-            {"src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-            {"src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            {"src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+            {"src": "./icons/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable"},
         ],
     }
     (out / "manifest.webmanifest").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -521,22 +359,16 @@ def main():
     assets = [
         "./index.html",
         "./manifest.webmanifest",
-        "./icons/icon-192.png",
-        "./icons/icon-512.png",
-        "./icons/icon-maskable-512.png",
-        "./icons/apple-touch-icon.png",
+        "./icons/icon.svg",
+        "./icons/icon-maskable.svg",
     ]
     (out / "sw.js").write_text(
         SW_TEMPLATE.format(build_id=build_id, assets=json.dumps(assets)), encoding="utf-8"
     )
 
-    theme_rgb, bg_rgb = hex_to_rgb(theme), hex_to_rgb(bg)
-    base = render_icon(512, theme_rgb, bg_rgb, args.initials, maskable=False)
-    write_png(out / "icons" / "icon-512.png", base, 512, 512)
-    write_png(out / "icons" / "icon-192.png", downsample(base, 512, 192), 192, 192)
-    write_png(out / "icons" / "apple-touch-icon.png", downsample(base, 512, 180), 180, 180)
-    mask = render_icon(512, theme_rgb, bg_rgb, args.initials, maskable=True)
-    write_png(out / "icons" / "icon-maskable-512.png", mask, 512, 512)
+    icon = args.icon or args.initials
+    (out / "icons" / "icon.svg").write_text(svg_icon(icon, theme, bg), encoding="utf-8")
+    (out / "icons" / "icon-maskable.svg").write_text(svg_icon(icon, theme, bg, maskable=True), encoding="utf-8")
 
     zip_path = None
     if not args.no_zip:

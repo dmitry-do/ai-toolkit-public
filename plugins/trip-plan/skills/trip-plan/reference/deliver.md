@@ -7,7 +7,7 @@ Sequencing and the privacy rule live in `SKILL.md`; visual direction lives in
 One HTML file, shipped two ways:
 
 1. **The file itself.** Self-contained, saved to Files or Downloads, opens offline with no server. This is the fallback that always works.
-2. **The installable PWA.** The same file plus a manifest, service worker, and icons, zipped and published, so it sits on the home screen and survives a dead signal in a valley.
+2. **The installable PWA.** The same file plus a manifest, service worker, and an emoji icon, zipped and published, so it sits on the home screen and survives a dead signal in a valley.
 
 Build the HTML first, then run the packaging script. Don't hand-write manifests or service workers.
 
@@ -66,22 +66,26 @@ In `style.md` next to this file.
 # refuses anything it didn't create, including the folder holding the itinerary.
 python3 <this skill's folder>/scripts/build_pwa.py --html itinerary.html --out dist \
   --name "California Coast, May 2026" --short-name "CA Coast" \
-  --theme "#b5533c" --bg "#faf6ef" --initials CA
+  --theme "#b5533c" --bg "#faf6ef" --icon "🌊"
 ```
 
 The build refuses to run when the HTML still holds booking codes, access codes or personal data, so the rule above is enforced rather than remembered. To scan without building, run `python3 <this skill's folder>/scripts/scrub_check.py itinerary.html`. It's a pattern matcher, so it catches shapes and not meaning: it won't recognise a traveller's name or a home address. Read the file as well. When a finding is genuinely a venue's public detail, narrow it: `--allow "phone number"` keeps every other category blocking. `--allow-pii` disables the scan entirely and should be close to never.
 
-Only `--html` is required; name and theme fall back to the `<title>` and sane defaults. Pick `--theme` to match the itinerary's accent colour and `--initials` from the destination, so the home screen icon is recognisable next to other apps. The script needs Python 3.8 and nothing else. `python3 <this skill's folder>/tests/run_tests.py` covers all the scripts if you have changed any of them.
+Only `--html` is required; name and theme fall back to the `<title>` and sane defaults. Pick `--theme` to match the itinerary's accent colour and `--icon` from the trip: one emoji (🚗 for a road trip, 🏯 for Japan) or 1-3 letters, so the home screen icon is recognisable next to other apps. Use the same emoji as the plan's title when it has one. The script needs Python 3.8 and nothing else. `python3 <this skill's folder>/tests/run_tests.py` covers all the scripts if you have changed any of them.
 
-It writes `dist/` with `index.html`, `manifest.webmanifest`, `sw.js`, and four icons (192, 512, maskable 512, apple-touch 180), then zips the whole thing with the files at the zip root, which is the layout Cloudflare Drop expects. The connector path uses the folder, not the zip.
+It writes `dist/` with `index.html`, `manifest.webmanifest`, `sw.js`, and two SVG icons (`icon.svg` and `icon-maskable.svg`), then zips the whole thing with the files at the zip root, which is the layout Cloudflare Drop expects. The connector path uses the folder, not the zip.
 
-Into `index.html` it injects a manifest link, light and dark `theme-color`, the iOS meta tags and touch icon, an "Add to Home Screen" button that only appears when the browser fires `beforeinstallprompt`, and a service worker registration guarded so the local `file://` copy keeps working untouched.
+The icons are SVG text, not PNG. A PNG set travels to the connector as base64, which made the payload about 50 KB, most of it base64 that has to be copied into the tool call without one changed character. With SVG icons there is nothing binary in `dist/` and the payload is plain text. Android and desktop Chrome use the SVG icons when they install the app. iOS does not read SVG for the home screen, so it uses a screenshot of the page as the icon. The emoji is drawn with the phone's own emoji font, so it looks a little different on each platform. Do not add PNG files to `dist/` to fix this.
+
+Into `index.html` it injects a manifest link, light and dark `theme-color`, the iOS meta tags, an SVG favicon, an "Add to Home Screen" button that only appears when the browser fires `beforeinstallprompt`, and a service worker registration guarded so the local `file://` copy keeps working untouched.
 
 The service worker serves pages network-first with a cache fallback, so a redeployed itinerary shows up immediately when there's signal and still opens on airplane mode. Icons and the manifest are cache-first. The cache name is keyed to a hash of the HTML, so each rebuild retires the old cache instead of stranding people on a stale plan. Re-running the script on an already-built `index.html` replaces the injected blocks rather than duplicating them, so edit and rebuild freely.
 
 ### Step 3: publish on Cloudflare
 
 A service worker only runs in a secure context, so `https://` or localhost, never `file://`. Use the first path below that is available. Do not ask the user which one to use.
+
+Always try path 1 first when its `execute` tool is there. Do not skip it because the payload looks large, because a copy might go wrong, or because Wrangler is quicker. The payload checks itself, so a bad copy deploys nothing and comes back as `PAYLOAD_CHANGED`. Go to path 2 only when no qualifying tool is available, or when path 1 returns an error that the list below says to fall back on.
 
 **1. With the Cloudflare connector (preferred):** this deploys to the user's own Cloudflare account. The URL does not expire, and a redeploy with the same name updates the app that is already on the phone.
 
@@ -103,7 +107,8 @@ python3 <this skill's folder>/scripts/cf_deploy.py --dist dist --name trip-ca-co
 
 - `--name` is the Worker name and the first label of the URL. Use `trip-` plus a slug of the trip. Keep the same name for every redeploy of the same trip
 - The script writes `cf_deploy.js` next to `dist/` and prints its size. It refuses a folder that `build_pwa.py` did not build, because the build runs the privacy scan
-- Read `cf_deploy.js` and pass its whole content, unchanged, as `code` to the `execute` tool. Do not edit, shorten or retype parts of it
+- Read `cf_deploy.js` and pass its whole content, unchanged, as `code` to the `execute` tool. Do not edit, shorten or retype parts of it. Long strings are cut into `"..." +` pieces of 1,500 characters, so every line fits in one file read. Copy the pieces in order
+- If the script prints a note about binary files, something other than `build_pwa.py` put them in `dist/`. Rebuild instead of deploying them
 - If the session can reach more than one Cloudflare account, `execute` says that no account is resolved. Then list the accounts with `async () => cloudflare.request({ method: "GET", path: "/accounts" })`, ask the user which one to use, and pass its id as `account_id`
 
 The payload stops before it uploads anything when a guard fails. Each error starts with a code:

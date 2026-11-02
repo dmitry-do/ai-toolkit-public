@@ -255,4 +255,4 @@ If the user asks to add events, use whatever calendar tool the runtime exposes r
 
 When the user wants the plan as a file, an offline app, or a public URL, read `reference/deliver.md` in this skill's folder and work from it. Visual direction is in `reference/style.md` beside it.
 
-Both are worth opening rather than recalling. The build flags, the service worker behaviour and the deploy path are specific enough that a remembered version will be subtly wrong. When a Cloudflare connector with an `execute` tool is connected, publish through it without asking. `deliver.md` says how.
+Both are worth opening rather than recalling. The build flags, the service worker behaviour and the deploy path are specific enough that a remembered version will be subtly wrong. When a Cloudflare connector with an `execute` tool is connected, publish through it first and without asking. Do not skip it because the payload is large. Fall back to Wrangler or Drop only when the tool is missing or returns an error. `deliver.md` says how.

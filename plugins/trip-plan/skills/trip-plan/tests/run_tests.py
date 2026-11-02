@@ -260,9 +260,44 @@ def _():
                                capture_output=True, text=True, cwd=proj)
             expect(r.returncode == 0, "build %d failed:\n%s" % (attempt, r.stdout + r.stderr))
         for f in ("index.html", "manifest.webmanifest", "sw.js",
-                  "icons/icon-192.png", "icons/icon-maskable-512.png"):
+                  "icons/icon.svg", "icons/icon-maskable.svg"):
             expect((proj / "dist" / f).is_file(), "missing %s" % f)
         expect((proj / "dist.zip").is_file(), "no zip written")
+
+
+@case("build: icons are SVG text with the emoji, and nothing in dist is binary")
+def _():
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        proj = Path(tmp) / "proj"
+        proj.mkdir()
+        shutil.copy(FIXTURES / "scrub_safe.html", proj / "itinerary.html")
+        r = subprocess.run([sys.executable, str(SCRIPTS / "build_pwa.py"),
+                            "--html", "itinerary.html", "--out", "dist", "--icon", "\U0001F697"],
+                           capture_output=True, text=True, cwd=proj)
+        expect(r.returncode == 0, "build failed:\n%s" % (r.stdout + r.stderr))
+        dist = proj / "dist"
+        expect(not list(dist.rglob("*.png")), "PNG icons are still written")
+        svg = (dist / "icons" / "icon.svg").read_text(encoding="utf-8")
+        expect(svg.startswith("<svg") and "\U0001F697" in svg, "the icon does not carry the emoji")
+        manifest = json.loads((dist / "manifest.webmanifest").read_text(encoding="utf-8"))
+        kinds = {i["purpose"]: i["type"] for i in manifest["icons"]}
+        expect(kinds == {"any": "image/svg+xml", "maskable": "image/svg+xml"}, "manifest icons: %s" % kinds)
+        for f in manifest["icons"]:
+            expect((dist / f["src"]).is_file(), "manifest points at a missing %s" % f["src"])
+        sw = (dist / "sw.js").read_text(encoding="utf-8")
+        expect(".png" not in sw, "the worker still caches PNG icons")
+        r = subprocess.run([sys.executable, str(SCRIPTS / "build_pwa.py"),
+                            "--html", "itinerary.html", "--out", "dist", "--initials", "ca"],
+                           capture_output=True, text=True, cwd=proj)
+        expect(r.returncode == 0, "--initials no longer works:\n%s" % (r.stdout + r.stderr))
+        expect(">CA<" in (dist / "icons" / "icon.svg").read_text(encoding="utf-8"), "initials not drawn")
+        code, out = run("cf_deploy.py", "--dist", dist, "--name", "trip-x")
+        expect(code == 0, "packing failed:\n%s" % out)
+        payload = (proj / "cf_deploy.js").read_text(encoding="utf-8")
+        expect('"b",' not in payload and "base64" not in out, "something still travels as base64")
+        longest = max(len(line) for line in payload.splitlines())
+        expect(longest <= 2000, "payload has a %d-character line" % longest)
 
 
 @case("build: injection is idempotent and the worker guards what it caches")
@@ -333,7 +368,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 const [, , payload, mode, distDir, files] = process.argv;
 let code = readFileSync(payload, "utf8");
-if (mode === "corrupt") code = code.replace(/"t", "(.)/, (m, c) => m.slice(0, -1) + (c === "<" ? ">" : "<"));
+if (mode === "corrupt") code = code.replace(/"t",\s*"(.)/, (m, c) => m.slice(0, -1) + (c === "<" ? ">" : "<"));
 let module;
 const calls = [];
 globalThis.accountId = "acc";
@@ -374,7 +409,7 @@ def _():
         expect(code == 0, "packing failed:\n%s" % out)
         harness = Path(tmp) / "harness.mjs"
         harness.write_text(HARNESS)
-        files = "index.html,sw.js,manifest.webmanifest,icons/icon-192.png,icons/apple-touch-icon.png"
+        files = "index.html,sw.js,manifest.webmanifest,icons/icon.svg,icons/icon-maskable.svg"
 
         def go(mode):
             r = subprocess.run([node, str(harness), str(proj / "cf_deploy.js"), mode,
