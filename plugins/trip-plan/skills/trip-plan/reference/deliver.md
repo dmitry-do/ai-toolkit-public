@@ -73,17 +73,43 @@ The build refuses to run when the HTML still holds booking codes, access codes o
 
 Only `--html` is required; name and theme fall back to the `<title>` and sane defaults. Pick `--theme` to match the itinerary's accent colour and `--initials` from the destination, so the home screen icon is recognisable next to other apps. The script needs Python 3.8 and nothing else. `python3 <this skill's folder>/tests/run_tests.py` covers all the scripts if you have changed any of them.
 
-It writes `dist/` with `index.html`, `manifest.webmanifest`, `sw.js`, and four icons (192, 512, maskable 512, apple-touch 180), then zips the whole thing with the files at the zip root, which is the layout Cloudflare Drop expects.
+It writes `dist/` with `index.html`, `manifest.webmanifest`, `sw.js`, and four icons (192, 512, maskable 512, apple-touch 180), then zips the whole thing with the files at the zip root, which is the layout Cloudflare Drop expects. The connector path uses the folder, not the zip.
 
 Into `index.html` it injects a manifest link, light and dark `theme-color`, the iOS meta tags and touch icon, an "Add to Home Screen" button that only appears when the browser fires `beforeinstallprompt`, and a service worker registration guarded so the local `file://` copy keeps working untouched.
 
 The service worker serves pages network-first with a cache fallback, so a redeployed itinerary shows up immediately when there's signal and still opens on airplane mode. Icons and the manifest are cache-first. The cache name is keyed to a hash of the HTML, so each rebuild retires the old cache instead of stranding people on a stale plan. Re-running the script on an already-built `index.html` replaces the injected blocks rather than duplicating them, so edit and rebuild freely.
 
-### Step 3: publish on Cloudflare Drop
+### Step 3: publish on Cloudflare
 
-Cloudflare Drop puts a static folder on Cloudflare's network with no account needed, which is what this needs: a service worker only runs in a secure context, so `https://` or localhost, never `file://`.
+A service worker only runs in a secure context, so `https://` or localhost, never `file://`. Use the first path below that is available. Do not ask the user which one to use.
 
-**With a terminal (preferred):** use Wrangler, which is the CLI path Cloudflare recommends for local project folders.
+**1. With the Cloudflare connector (preferred):** this deploys to the user's own Cloudflare account. The URL does not expire, and a redeploy with the same name updates the app that is already on the phone.
+
+The connector qualifies when one of its tools is named `execute` and its description says that it runs JavaScript with `cloudflare.request()` against the Cloudflare API. This is the server at `https://mcp.cloudflare.com/mcp`. The tool name has the connector's prefix, which changes. If the tool is deferred, load it with a tool search for "cloudflare execute". The older Workers Bindings connector (tools such as `workers_list` and `kv_namespace_create`, but no `execute`) cannot upload a Worker. If only that one is connected, use path 2.
+
+```bash
+python3 <this skill's folder>/scripts/cf_deploy.py --dist dist --name trip-ca-coast-may-2026
+```
+
+- `--name` is the Worker name and the first label of the URL. Use `trip-` plus a slug of the trip. Keep the same name for every redeploy of the same trip
+- The script writes `cf_deploy.js` next to `dist/` and prints its size. It refuses a folder that `build_pwa.py` did not build, because the build runs the privacy scan
+- Read `cf_deploy.js` and pass its whole content, unchanged, as `code` to the `execute` tool. Do not edit, shorten or retype parts of it
+- If the session can reach more than one Cloudflare account, `execute` says that no account is resolved. Then list the accounts with `async () => cloudflare.request({ method: "GET", path: "/accounts" })`, ask the user which one to use, and pass its id as `account_id`
+
+The payload stops before it uploads anything when a guard fails. Each error starts with a code:
+
+- `PAYLOAD_CHANGED`: the content changed on its way into the tool call. Read the file again and retry once. If it fails again, use path 2
+- `NO_SUBDOMAIN`: the account has no `workers.dev` subdomain. That name is shared by every Worker on the account, so ask the user to choose one in the Cloudflare dashboard. Then retry
+- `NAME_TAKEN`: a Worker with that name exists and trip-plan did not make it. Pick a different `--name`, rebuild the payload and retry
+- An HTTP 401 or 403: the error names the missing permission. Tell the user to reconnect the connector with permission to edit Workers scripts
+
+The result gives the live URL. The payload marks the Worker with the tag `trip-plan` and asks search engines not to index it. If the user asks to take a trip offline, send this through the same tool, with the real name:
+
+```js
+async () => cloudflare.request({ method: "DELETE", path: `/accounts/${accountId}/workers/scripts/trip-ca-coast-may-2026` })
+```
+
+**2. With a terminal:** use Wrangler, which is the CLI path Cloudflare recommends for local project folders.
 
 ```bash
 npm exec --yes wrangler@latest -- deploy ./dist \
@@ -96,15 +122,15 @@ npm exec --yes wrangler@latest -- deploy ./dist \
 - If a deploy fails asking for a name or a compatibility date, rerun with the flag it asked for
 - Wrangler 4.102.0 or later is needed for the unauthenticated path
 
-**With browser automation only:** upload `dist.zip` at https://www.cloudflare.com/drop/ and read the URLs off the result page.
+**3. With browser automation only:** upload `dist.zip` at https://www.cloudflare.com/drop/ and read the URLs off the result page.
 
-**With neither:** hand the user `dist.zip` and the Drop URL and let them drop it in themselves. It takes them about ten seconds. Some sandboxes block outbound traffic to Cloudflare, so check rather than assume the deploy failed for a code reason.
+**4. With none of these:** hand the user `dist.zip` and the Drop URL and let them drop it in themselves. It takes them about ten seconds. Some sandboxes block outbound traffic to Cloudflare, so check rather than assume the deploy failed for a code reason.
 
 Then verify and hand over:
 
 - Open the live `workers.dev` URL. A 404 right after deploy is normal, wait a few seconds and retry before changing anything
-- Return both the live URL and the claim URL
-- Say plainly that the claim URL expires in 60 minutes and grants ownership of the deployment, so it shouldn't be shared
+- Connector path: return the live URL. There is no claim URL, because the Worker is already on the user's account
+- Wrangler `--temporary` or Drop path: return both the live URL and the claim URL. Say plainly that the claim URL expires in 60 minutes and grants ownership of the deployment, so it shouldn't be shared
 - The live URL is public and unlisted, which is why the file has to be clean before it gets here. Anyone with the link can read it, and links leak
 
 ### What to confirm before shipping

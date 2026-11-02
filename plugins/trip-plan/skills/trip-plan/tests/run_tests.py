@@ -298,6 +298,100 @@ def _():
         expect(not (proj / "dist").exists(), "dist was created despite the block")
 
 
+def built_dist(tmp):
+    proj = Path(tmp) / "proj"
+    proj.mkdir()
+    shutil.copy(FIXTURES / "scrub_safe.html", proj / "itinerary.html")
+    r = subprocess.run([sys.executable, str(SCRIPTS / "build_pwa.py"),
+                        "--html", "itinerary.html", "--out", "dist"],
+                       capture_output=True, text=True, cwd=proj)
+    expect(r.returncode == 0, "build failed:\n%s" % (r.stdout + r.stderr))
+    return proj
+
+
+@case("cf_deploy: refuses a folder build_pwa.py did not build, a bad name, and output inside dist")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        raw = Path(tmp) / "raw"
+        raw.mkdir()
+        shutil.copy(FIXTURES / "scrub_safe.html", raw / "index.html")
+        code, out = run("cf_deploy.py", "--dist", raw, "--name", "trip-x")
+        expect(code != 0, "an unscanned folder was packed:\n%s" % out)
+        proj = built_dist(tmp)
+        for name in ("Trip-X", "-trip", "trip_x", "a" * 64):
+            code, out = run("cf_deploy.py", "--dist", proj / "dist", "--name", name)
+            expect(code != 0, "bad name %r was accepted" % name)
+        code, out = run("cf_deploy.py", "--dist", proj / "dist", "--name", "trip-x",
+                        "--out", proj / "dist" / "cf_deploy.js")
+        expect(code != 0, "the payload was written inside dist")
+
+
+# A stand-in for the connector's sandbox: `cloudflare.request` and `accountId`
+# as its execute tool describes them. MODE picks how the fake API answers.
+HARNESS = r"""
+import { readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+const [, , payload, mode, distDir, files] = process.argv;
+let code = readFileSync(payload, "utf8");
+if (mode === "corrupt") code = code.replace(/"t", "(.)/, (m, c) => m.slice(0, -1) + (c === "<" ? ">" : "<"));
+let module;
+const calls = [];
+globalThis.accountId = "acc";
+globalThis.cloudflare = { async request(o) {
+  calls.push(o.method);
+  if (o.path.endsWith("/workers/subdomain")) return { result: mode === "nosub" ? {} : { subdomain: "me" } };
+  if (o.method === "GET") return { result: mode === "taken" ? [{ id: "trip-x", tags: [] }] : [] };
+  if (o.method === "PUT") module = await o.body.get("worker.js").text();
+  return { success: true, result: {} };
+} };
+const out = { calls };
+try { out.result = await (0, eval)(code)(); } catch (e) { out.error = e.message.split(":")[0]; }
+if (module) {
+  writeFileSync(distDir + "/../worker_test.mjs", module);
+  const w = (await import(distDir + "/../worker_test.mjs")).default;
+  out.served = {};
+  for (const f of files.split(",")) {
+    const res = await w.fetch(new Request("https://x.dev/" + f));
+    const sha = createHash("sha256").update(new Uint8Array(await res.arrayBuffer())).digest("hex");
+    out.served[f] = [res.status, sha === createHash("sha256").update(readFileSync(distDir + "/" + f)).digest("hex")];
+  }
+  out.missing = (await w.fetch(new Request("https://x.dev/nope"))).status;
+}
+console.log(JSON.stringify(out));
+"""
+
+
+@case("cf_deploy: the payload deploys byte-exact files and stops on every guard")
+def _():
+    node = shutil.which("node")
+    if not node:
+        print("        (skipped: node is not installed)")
+        return
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        proj = built_dist(tmp)
+        code, out = run("cf_deploy.py", "--dist", proj / "dist", "--name", "trip-x")
+        expect(code == 0, "packing failed:\n%s" % out)
+        harness = Path(tmp) / "harness.mjs"
+        harness.write_text(HARNESS)
+        files = "index.html,sw.js,manifest.webmanifest,icons/icon-192.png,icons/apple-touch-icon.png"
+
+        def go(mode):
+            r = subprocess.run([node, str(harness), str(proj / "cf_deploy.js"), mode,
+                                str(proj / "dist"), files], capture_output=True, text=True)
+            expect(r.returncode == 0, "harness crashed:\n%s" % (r.stdout + r.stderr))
+            return json.loads(r.stdout.strip().splitlines()[-1])
+
+        ok = go("ok")
+        expect(ok.get("result", {}).get("url") == "https://trip-x.me.workers.dev/", "wrong result: %s" % ok)
+        expect(all(v == [200, True] for v in ok["served"].values()), "files not served byte-exact: %s" % ok["served"])
+        expect(ok["missing"] == 404, "an unknown path did not 404")
+        for mode, error in (("taken", "NAME_TAKEN"), ("nosub", "NO_SUBDOMAIN"), ("corrupt", "PAYLOAD_CHANGED")):
+            res = go(mode)
+            expect(res.get("error") == error, "%s: expected %s, got %s" % (mode, error, res))
+            expect("PUT" not in res["calls"], "%s: something was uploaded anyway" % mode)
+
+
 def main():
     failed = []
     for name, fn in CASES:

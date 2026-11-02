@@ -55,4 +55,10 @@ with `scripts/package-skill.sh trip-plan` and upload it in **Customize → Skill
 can run Wrangler, the skill deploys the built folder and reads the live URL back; otherwise it hands
 you `dist.zip` to drop on [Cloudflare Drop](https://www.cloudflare.com/drop/) yourself.
 
+If the [Cloudflare API connector](https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/)
+(`https://mcp.cloudflare.com/mcp`) is connected, the skill deploys there first, with no shell needed. The
+app goes to your own account as a Worker on `workers.dev`. The link does not expire, and a redeploy
+updates the app that is already on your phone. The older Workers Bindings connector cannot upload
+Workers, so the skill skips it.
+
 Mine, MIT-licensed (see the root [LICENSE](../../LICENSE)).

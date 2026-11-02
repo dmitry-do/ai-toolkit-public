@@ -1,6 +1,6 @@
 {
   "name": "trip-plan",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Itinerary days sequenced around opening hours, travel time and bookings, then shipped as an installable offline app.",
   "author": {
     "name": "dmitry-do"

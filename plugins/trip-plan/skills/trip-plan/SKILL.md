@@ -1,11 +1,11 @@
 ---
 name: trip-plan
-description: Build, review, or publish a travel itinerary. Use when the user asks to create a day trip or multi-day itinerary, wants an existing plan reviewed, reordered or updated, or wants a trip plan turned into an installable offline app for their phone. Trigger this whenever a request involves sequencing places to visit across days, planning stops around opening hours and travel time, or shipping an itinerary as a file or a published page, even if the user never says the word "itinerary". Always trigger this skill when a trip, travel or itinerary request mentions a PWA, Cloudflare Drop, an installable or offline app, a home-screen app, or publishing a plan to a link, because this skill owns that build and deploy path. Itineraries it produces carry locations, times and prices only, never booking references, access codes or personal data.
+description: Build, review, or publish a travel itinerary. Use when the user asks to create a day trip or multi-day itinerary, wants an existing plan reviewed, reordered or updated, or wants a trip plan turned into an installable offline app for their phone. Trigger this whenever a request involves sequencing places to visit across days, planning stops around opening hours and travel time, or shipping an itinerary as a file or a published page, even if the user never says the word "itinerary". Always trigger this skill when a trip, travel or itinerary request mentions a PWA, Cloudflare, Cloudflare Drop, an installable or offline app, a home-screen app, or publishing a plan to a link, because this skill owns that build and deploy path. Itineraries it produces carry locations, times and prices only, never booking references, access codes or personal data.
 ---
 
 # /trip-plan
 
-Plan or review a travel itinerary. Three phases: **create** (draft from scratch), **review** (audit an existing plan), **deliver** (ship the locked plan as a single HTML file, and as an installable PWA published on Cloudflare Drop).
+Plan or review a travel itinerary. Three phases: **create** (draft from scratch), **review** (audit an existing plan), **deliver** (ship the locked plan as a single HTML file, and as an installable PWA published on Cloudflare: to the user's own account through the Cloudflare connector when it is connected, or through Wrangler or Cloudflare Drop when it is not).
 
 ## Inputs to gather
 
@@ -255,4 +255,4 @@ If the user asks to add events, use whatever calendar tool the runtime exposes r
 
 When the user wants the plan as a file, an offline app, or a public URL, read `reference/deliver.md` in this skill's folder and work from it. Visual direction is in `reference/style.md` beside it.
 
-Both are worth opening rather than recalling. The build flags, the service worker behaviour and the deploy path are specific enough that a remembered version will be subtly wrong.
+Both are worth opening rather than recalling. The build flags, the service worker behaviour and the deploy path are specific enough that a remembered version will be subtly wrong. When a Cloudflare connector with an `execute` tool is connected, publish through it without asking. `deliver.md` says how.
