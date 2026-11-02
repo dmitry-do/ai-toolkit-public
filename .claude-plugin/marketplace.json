@@ -13,7 +13,7 @@
       "name": "trip-plan",
       "source": "./plugins/trip-plan",
       "description": "Itinerary days sequenced around opening hours, travel time and bookings, then shipped as an installable offline app.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "category": "travel",
       "keywords": ["travel", "itinerary", "trip", "planning", "pwa"]
     },
@@ -21,7 +21,7 @@
       "name": "audio-transcription",
       "source": "./plugins/audio-transcription",
       "description": "Recordings into timestamped, searchable Markdown with Whisper: meetings, calls, interviews, lectures, podcasts.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "audio",
       "keywords": ["audio", "transcription", "whisper", "mlx", "speech-to-text"]
     },
@@ -29,7 +29,7 @@
       "name": "meeting-notes",
       "source": "./plugins/meeting-notes",
       "description": "A folder of transcripts into one readable summary per meeting: TLDR, decisions, and action items with owners.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "productivity",
       "keywords": ["meetings", "transcripts", "notes"]
     },
@@ -45,7 +45,7 @@
       "name": "deslop",
       "source": "./plugins/deslop",
       "description": "Reworks a document in two passes on claude-opus-4-8: verify every claim against its source, then make the prose direct.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "writing",
       "keywords": ["writing", "documentation", "editing", "accuracy", "readme"]
     }

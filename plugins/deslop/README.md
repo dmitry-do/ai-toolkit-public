@@ -35,9 +35,8 @@ made-up figure flagged and cut, and the teaser opening rewritten to lead with th
 
 ## 🌐 Claude Web
 
-The two passes are plain editing and run on claude.ai — package the skill folder with
-`scripts/package-skill.sh deslop` and upload it in **Customize → Skills**. Only the model pin
-(`agents/deslop.md`, which pins the rework to `claude-opus-4-8`) is Claude Code-only; on claude.ai
-the passes run on whatever model you're using.
+Build the plugin zip with `scripts/package-plugin.sh deslop` and upload it in **Customize → Plugins**. claude.ai has no subagents, so the
+skill runs the two passes itself, one document at a time, on whatever model you're using. The
+`claude-opus-4-8` pin in `agents/deslop.md` only applies in Claude Code.
 
 Mine, MIT-licensed (see the root [LICENSE](../../LICENSE)).

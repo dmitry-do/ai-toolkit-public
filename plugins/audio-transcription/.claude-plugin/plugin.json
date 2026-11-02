@@ -1,6 +1,6 @@
 {
   "name": "audio-transcription",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Recordings into timestamped, searchable Markdown with Whisper: meetings, calls, interviews, lectures, podcasts.",
   "author": {
     "name": "dmitry-do"

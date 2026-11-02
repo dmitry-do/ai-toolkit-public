@@ -28,7 +28,10 @@ There is no local `rec/` folder on claude.ai. Upload or paste each transcript an
 notes; Step 0 (archiving) and `RECORDINGS.md` tracking are local-machine conveniences that
 simply don't apply there. Treat each uploaded/pasted transcript as one item and apply the
 summarization template (Steps 2+) per transcript — the per-transcript isolation still holds
-because each is its own input. Step 3's `humanizer` pass is optional — run it only if the
+because each is its own input. claude.ai has no subagents, so do the Step 2 subagent prompt
+yourself, one transcript at a time: finish and return one summary before you read the next
+transcript, so nothing carries over between meetings. Return each summary as a file to download.
+Step 3's `humanizer` pass is optional — run it only if the
 `humanizer` skill is installed and active in your Claude Web workspace.
 
 ## Processing workflow

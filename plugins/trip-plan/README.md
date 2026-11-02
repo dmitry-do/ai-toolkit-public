@@ -50,15 +50,21 @@ today's card, and folds away the stops you've already passed.
 
 ## 🌐 Claude Web
 
-All three phases work on claude.ai, the build and the deploy included — package the skill folder
-with `scripts/package-skill.sh trip-plan` and upload it in **Customize → Skills**. Wherever a shell
-can run Wrangler, the skill deploys the built folder and reads the live URL back; otherwise it hands
-you `dist.zip` to drop on [Cloudflare Drop](https://www.cloudflare.com/drop/) yourself.
+Build the plugin zip with `scripts/package-plugin.sh trip-plan` and upload it in **Customize → Plugins**. All three phases work there,
+the build and the deploy included. Wherever a shell can run Wrangler, the skill deploys the built
+folder and reads the live URL back; otherwise it hands you `dist.zip` to drop on
+[Cloudflare Drop](https://www.cloudflare.com/drop/) yourself.
 
-If the [Cloudflare API connector](https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/)
-(`https://mcp.cloudflare.com/mcp`) is connected, the skill deploys there first, with no shell needed. The
-app goes to your own account as a Worker on `workers.dev`. The link does not expire, and a redeploy
-updates the app that is already on your phone. The older Workers Bindings connector cannot upload
-Workers, so the skill skips it.
+The plugin bundles the [Cloudflare API connector](https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/)
+(`https://mcp.cloudflare.com/mcp`). Sign in to Cloudflare through it once, and the skill deploys there
+first, with no shell needed. The app goes to your own account as a Worker on `workers.dev`. The link
+does not expire, and a redeploy updates the app that is already on your phone.
+
+The "Cloudflare Developer Platform" connector in claude.ai's directory is the older Workers Bindings
+server. Cloudflare has deprecated it, and it can't upload a Worker, so the skill skips it. If the
+bundled connector doesn't show up, add it yourself: in claude.ai go to **Customize → Connectors → Add
+custom connector** and use `https://mcp.cloudflare.com/mcp` as the URL. In Claude Code, run
+`claude mcp add --transport http cloudflare-api https://mcp.cloudflare.com/mcp`. Until one of them is
+connected, the skill tells you once and publishes through Wrangler or Cloudflare Drop.
 
 Mine, MIT-licensed (see the root [LICENSE](../../LICENSE)).

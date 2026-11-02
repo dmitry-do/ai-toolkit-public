@@ -11,6 +11,21 @@ Supported audio formats: `wav`, `mp3`, and `m4a`.
 
 The bundled script lives at `${CLAUDE_PLUGIN_ROOT}/skills/audio-transcription/scripts/transcribe_audio.py`, where `${CLAUDE_PLUGIN_ROOT}` is the plugin's installed root directory (the parent of `skills/`). If the variable is not set in the shell, substitute the absolute plugin root path.
 
+## On Claude Web
+
+claude.ai has no access to files on the user's machine, so the user uploads the recording. The
+sandbox there is a Linux CPU machine, not Apple Silicon, so the MLX rules below do not apply:
+
+1. Run the bundled script with `--check` from this skill's folder. `${CLAUDE_PLUGIN_ROOT}` may not
+   be set there, so use the folder this skill was loaded from.
+2. If `ffmpeg`, `whisper` or `torch` is missing, ask once before installing
+   `openai-whisper torch` with pip. If the install fails (no network, or no package installs), stop
+   and say plainly that this recording needs Claude Code on the user's own machine.
+3. Run with `--backend whisper --whisper-model small` (or `base` for long recordings). CPU
+   transcription with `large-v3` is too slow for a sandbox session.
+4. Return the Markdown transcript as a file to download, and say which model was used, because
+   `small` is less accurate than the local MLX default.
+
 ## When not to use
 
 This is batch, file-to-Markdown transcription. Reach for something else when:

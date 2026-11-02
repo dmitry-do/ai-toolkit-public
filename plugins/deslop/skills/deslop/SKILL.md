@@ -39,7 +39,9 @@ session's own model.
    rework on that model. Pass it the TARGET path and the SOURCE paths. Independent documents can be
    launched in parallel. If the bundled agent isn't available as a subagent type in this runtime,
    launch a general subagent with an explicit `claude-opus-4-8` model override and the methodology
-   from [`../../agents/deslop.md`](../../agents/deslop.md).
+   from [`../../agents/deslop.md`](../../agents/deslop.md). If the runtime has no subagents at all
+   (claude.ai), run the two passes yourself from that file, one document at a time, on the current
+   model. Finish one document and its report before you start the next, so facts don't carry over.
 3. **Collect each subagent's report** — CORRECTIONS, FLAGGED, STYLE, FILE — and present them
    together. Lead with the factual corrections; they matter more than the prose changes.
 4. **Optional: hand off to `humanizer`.** If the `humanizer` skill is installed, offer to run it

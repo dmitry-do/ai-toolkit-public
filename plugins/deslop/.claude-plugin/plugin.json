@@ -1,6 +1,6 @@
 {
   "name": "deslop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reworks a document in two passes on claude-opus-4-8: verify every claim against its source, then make the prose direct.",
   "author": {
     "name": "dmitry-do"

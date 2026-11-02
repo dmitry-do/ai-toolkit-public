@@ -85,7 +85,17 @@ A service worker only runs in a secure context, so `https://` or localhost, neve
 
 **1. With the Cloudflare connector (preferred):** this deploys to the user's own Cloudflare account. The URL does not expire, and a redeploy with the same name updates the app that is already on the phone.
 
-The connector qualifies when one of its tools is named `execute` and its description says that it runs JavaScript with `cloudflare.request()` against the Cloudflare API. This is the server at `https://mcp.cloudflare.com/mcp`. The tool name has the connector's prefix, which changes. If the tool is deferred, load it with a tool search for "cloudflare execute". The older Workers Bindings connector (tools such as `workers_list` and `kv_namespace_create`, but no `execute`) cannot upload a Worker. If only that one is connected, use path 2.
+The connector qualifies when one of its tools is named `execute` and its description says that it runs JavaScript with `cloudflare.request()` against the Cloudflare API. This is the server at `https://mcp.cloudflare.com/mcp`. The tool name has the connector's prefix, which changes. If the tool is deferred, load it with a tool search for "cloudflare execute". The plugin bundles this server as `cloudflare-api`, so it is usually there once the user has signed in to Cloudflare through it. The older Workers Bindings connector, named "Cloudflare Developer Platform" on claude.ai (tools such as `workers_list` and `kv_namespace_create`, but no `execute`), is deprecated and cannot upload a Worker.
+
+If no qualifying `execute` tool is available, tell the user once, then go on to path 2 without waiting:
+
+> Your current Cloudflare connector can't deploy this app. [If the old one is connected: "Cloudflare Developer Platform" is the deprecated Workers Bindings server, and it has no tool that uploads a Worker.] The deploy needs the Cloudflare API connector at `https://mcp.cloudflare.com/mcp`. To add it:
+> - **claude.ai:** Customize → Connectors → Add custom connector. Name it "Cloudflare API", paste `https://mcp.cloudflare.com/mcp` as the URL, then select Connect and sign in to Cloudflare. Allow it to edit Workers scripts.
+> - **Claude Code:** run `/mcp`, choose `plugin:trip-plan:cloudflare-api` and sign in. If the plugin's server is missing, run `claude mcp add --transport http cloudflare-api https://mcp.cloudflare.com/mcp`.
+>
+> Until then I'll publish with Wrangler or Cloudflare Drop instead.
+
+Say it only once per session, and skip the bracketed sentence when the old connector isn't connected.
 
 ```bash
 python3 <this skill's folder>/scripts/cf_deploy.py --dist dist --name trip-ca-coast-may-2026

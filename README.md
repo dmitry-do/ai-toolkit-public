@@ -11,6 +11,13 @@ Inside Claude Code:
 /plugin install <plugin-name>@ai-toolkit-public
 ```
 
+On claude.ai, the same plugins upload as zips in **Customize → Plugins → Upload a plugin**. Every
+plugin except `session-cost-stamp` works there:
+
+```
+scripts/package-plugin.sh <plugin-name>    # or --all; writes dist/<plugin-name>-<version>.zip
+```
+
 ## 🧩 What's inside
 
 | Plugin | What it does | Source |

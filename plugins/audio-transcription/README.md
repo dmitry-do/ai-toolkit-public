@@ -41,7 +41,10 @@ intuition.
 
 ## 🌐 Claude Web
 
-Claude Code only, not claude.ai: it needs local `mlx-whisper`/`ffmpeg` and reads audio files off
-your machine, and the claude.ai sandbox provides neither.
+Build the plugin zip with `scripts/package-plugin.sh audio-transcription` and upload it in **Customize → Plugins**. You upload
+the recording there. The claude.ai sandbox is a Linux CPU machine with no MLX, so the skill installs
+the portable `openai-whisper` backend (after asking) and uses a smaller model, which is slower and
+less accurate than the local default. If the sandbox can't install packages, the skill says so and
+the recording needs Claude Code.
 
 Mine, MIT-licensed (see the root [LICENSE](../../LICENSE)).

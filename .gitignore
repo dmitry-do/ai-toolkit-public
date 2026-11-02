@@ -26,7 +26,7 @@ evals/librispeech/transcripts/
 # the Results table in evals/behavioral/README.md holds the numbers worth keeping)
 evals/behavioral/results/
 
-# skill packaging output (regenerate via scripts/package-skill.sh)
+# plugin packaging output (regenerate via scripts/package-plugin.sh)
 /dist/
 
 # The trip-plan week that plugins/trip-plan/docs/output.png is a photograph of.

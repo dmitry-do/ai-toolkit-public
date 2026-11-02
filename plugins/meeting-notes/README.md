@@ -47,9 +47,10 @@ name and a timeline on each.
 
 ## 🌐 Claude Web
 
-Works on claude.ai over uploaded or pasted transcripts (no local `rec/` folder needed) — package
-the skill folder with `scripts/package-skill.sh meeting-notes` and upload it in
-**Customize → Skills**.
+Build the plugin zip with `scripts/package-plugin.sh meeting-notes` and upload it in
+**Customize → Plugins**. Upload or paste the transcripts instead of using a `rec/` folder. claude.ai
+has no subagents, so the skill summarizes one transcript at a time and returns each summary as a
+file.
 
 Optionally escalates to the [`humanizer`](https://github.com/blader/humanizer) skill when its tell check finds issues and
 that skill is installed; it works fine without it. Mine, MIT-licensed (see the root
